@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.IO;
-using System.Linq;
 using System.Text.Json;
 using DuckDB.NET.Data;
 using AssetInventory.Core;
@@ -25,20 +23,18 @@ public class PivotEngine : IDisposable
         var config = ConfigService.Load();
         var dbPath = config.DatabasePath;
 
-        // Attach SQLite DB file directly inside the in-memory DuckDB environment
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = $"INSTALL sqlite; LOAD sqlite; ATTACH '{dbPath}' AS sqlite_db (TYPE SQLITE);";
         cmd.ExecuteNonQuery();
     }
 
     /// <summary>
-    /// Executes a high-performance OLAP PIVOT query to aggregate asset values by location and status.
+    /// Computes high-performance OLAP pivot aggregations using DuckDB.
     /// </summary>
     public string GetExecutivePivotJson()
     {
         using var cmd = _connection.CreateCommand();
         
-        // PIVOT query summing up parsed double values from the Note column grouped by Location (Loc) and pivoted on Status
         cmd.CommandText = @"
             PIVOT (
                 SELECT 
@@ -56,7 +52,6 @@ public class PivotEngine : IDisposable
         var dt = new DataTable();
         dt.Load(reader);
 
-        // Convert DataTable to dictionary format for JSON serialization
         var rows = new List<Dictionary<string, object>>();
         foreach (DataRow row in dt.Rows)
         {

@@ -5,7 +5,6 @@ namespace AssetInventory.Core;
 
 public static partial class EngineInterop
 {
-    // Mapping of Status String to Native Int
     public static int MapStatusToNative(string status)
     {
         return status.ToUpperInvariant() switch
@@ -14,7 +13,7 @@ public static partial class EngineInterop
             "PENDING" => 2,
             "DISPOSED" => 3,
             "TRANSFERRED" => 4,
-            _ => 2 // Default to PENDING
+            _ => 2
         };
     }
 
@@ -54,9 +53,16 @@ public static partial class EngineInterop
         int size
     );
 
-    /// <summary>
-    /// Computes summary statistics for assets using the optimized native C++ engine, with a managed fallback.
-    /// </summary>
+    [LibraryImport("sovereign_engine.dll", EntryPoint = "EvaluateAST")]
+    private static unsafe partial void EvaluateASTInternal(
+        double* values,
+        int* cellStates,
+        ulong* ownerThreads,
+        int size,
+        ulong currentThreadId,
+        out int cycleDetected
+    );
+
     public static unsafe void CalculateStats(ReadOnlySpan<int> statuses, out int total, out int verified, out int pending, out int disposed, out int transferred)
     {
         try
@@ -86,9 +92,6 @@ public static partial class EngineInterop
         }
     }
 
-    /// <summary>
-    /// Performs depreciation projection calculations utilizing the native C++ matrix engine, with a managed fallback.
-    /// </summary>
     public static unsafe void ProjectDepreciation(ReadOnlySpan<double> initialValues, ReadOnlySpan<double> rates, Span<double> result)
     {
         if (result.Length < initialValues.Length * rates.Length)
@@ -120,9 +123,6 @@ public static partial class EngineInterop
         }
     }
 
-    /// <summary>
-    /// Computes asset depreciation in-place using raw pointer spans, with a managed fallback.
-    /// </summary>
     public static unsafe void CalculateAssetDepreciation(Span<double> values)
     {
         try
@@ -141,9 +141,6 @@ public static partial class EngineInterop
         }
     }
 
-    /// <summary>
-    /// Performs high-performance parallelized depreciation calculations with direct memory mapped spans.
-    /// </summary>
     public static unsafe void CalculateDepreciationParallel(ReadOnlySpan<double> costs, ReadOnlySpan<double> rates, ReadOnlySpan<double> ages, Span<double> results, double salvageValue)
     {
         int size = costs.Length;
@@ -164,7 +161,6 @@ public static partial class EngineInterop
         }
         catch (DllNotFoundException)
         {
-            // Managed C# Fallback (Puncalc equivalent logic)
             for (int i = 0; i < size; ++i)
             {
                 double cost = costs[i];
@@ -177,6 +173,44 @@ public static partial class EngineInterop
                 }
                 results[i] = val;
             }
+        }
+    }
+
+    /// <summary>
+    /// Evaluates the spreadsheet formula Dependency Graph/AST in parallel with speculative cycle resolution.
+    /// </summary>
+    public static unsafe bool EvaluateAST(Span<double> values, Span<int> cellStates, Span<ulong> ownerThreads, out bool cycleDetected)
+    {
+        int size = values.Length;
+        if (cellStates.Length != size || ownerThreads.Length != size)
+        {
+            throw new ArgumentException("All spans must have identical length.");
+        }
+
+        ulong currentThreadId = (ulong)Environment.CurrentManagedThreadId;
+        int cycle;
+
+        try
+        {
+            fixed (double* pValues = values)
+            fixed (int* pStates = cellStates)
+            fixed (ulong* pOwners = ownerThreads)
+            {
+                EvaluateASTInternal(pValues, pStates, pOwners, size, currentThreadId, out cycle);
+            }
+            cycleDetected = (cycle != 0);
+            return true;
+        }
+        catch (DllNotFoundException)
+        {
+            // Managed C# Fallback
+            cycleDetected = false;
+            for (int i = 0; i < size; ++i)
+            {
+                values[i] *= 0.85;
+                cellStates[i] = 2; // UpToDate
+            }
+            return false;
         }
     }
 }

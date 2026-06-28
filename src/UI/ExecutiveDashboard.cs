@@ -48,7 +48,6 @@ public partial class ExecutiveDashboard : Form
         {
             await _webView.EnsureCoreWebView2Async();
             
-            // Map the virtual host sovereign.assets to the local UI source folder
             string uiFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "src", "UI");
             if (!Directory.Exists(uiFolder))
             {
@@ -61,9 +60,7 @@ public partial class ExecutiveDashboard : Form
                 CoreWebView2HostResourceAccessKind.Allow
             );
 
-            // Establish the bridge
             _webView.CoreWebView2.AddHostObjectToScript("bridge", new FinancialBridge());
-
             _webView.Source = new Uri("https://sovereign.assets/univer_executive.html");
         }
         catch (Exception ex)

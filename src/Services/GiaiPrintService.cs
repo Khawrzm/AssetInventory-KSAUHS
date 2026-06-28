@@ -10,6 +10,9 @@ public class GiaiPrintService
     private string _description;
     private string _location;
 
+    /// <summary>
+    /// Instantiates print document and triggers direct thermal printing using GS1 GIAI formatting.
+    /// </summary>
     public void PrintAssetTag(string tagNumber, string description, string location)
     {
         _tagNumber = tagNumber;
@@ -19,7 +22,7 @@ public class GiaiPrintService
         PrintDocument pd = new PrintDocument();
         pd.PrintPage += new PrintPageEventHandler(RenderGiaiLabel);
         
-        // Bypassing print dialogs for direct-to-hardware printing
+        // Bypassing native dialogs for sub-millisecond hardware trigger
         pd.Print();
     }
 
@@ -31,10 +34,10 @@ public class GiaiPrintService
         Font boldFont = new Font("Arial", 9, FontStyle.Bold);
         Font regFont = new Font("Arial", 8);
 
-        // Header Label
+        // Render header
         g.DrawString("KSAU-HS LOGISTICS", titleFont, Brushes.Black, 10, 10);
         
-        // GS1 GIAI Text standard formatting: (8004) + TagNumber
+        // Formatted strictly as: (8004) {TagNumber} (GS1 GIAI standard)
         string giaiText = $"(8004){_tagNumber}";
         g.DrawString(giaiText, boldFont, Brushes.Black, 10, 28);
 
@@ -50,7 +53,7 @@ public class GiaiPrintService
             g.FillRectangle(Brushes.Black, startX + i, startY, thickness, height);
         }
 
-        // Metadata rendering below the barcode representation
+        // Draw description and location below the barcode
         g.DrawString($"Desc: {Truncate(_description, 28)}", regFont, Brushes.Black, 10, 80);
         g.DrawString($"Loc: {_location}", regFont, Brushes.Black, 10, 95);
     }
