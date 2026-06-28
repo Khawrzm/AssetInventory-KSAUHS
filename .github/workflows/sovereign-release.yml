@@ -1,0 +1,59 @@
+name: Logistics-Zero Sovereign Build and Release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Compile C++ Sovereign Engine
+        shell: cmd
+        run: |
+          cl.exe /LD /O2 /std:c++20 /EHsc src/Engine/sovereign_engine.cpp /Fe:sovereign_engine.dll
+
+      - name: Publish .NET 8 WinForms
+        run: |
+          dotnet publish AssetInventoryNode.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:PublishReadyToRun=true /p:IncludeNativeLibrariesForSelfExtract=true -o publish
+
+      - name: Copy C++ DLL to Publish Directory
+        shell: cmd
+        run: |
+          copy sovereign_engine.dll publish\
+
+      - name: Compress Publish Directory
+        shell: powershell
+        run: |
+          Compress-Archive -Path publish\* -DestinationPath AssetInventory_v3.0_win-x64.zip -Force
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v3.0.0-${{ github.run_number }}
+          name: v3.0.0-build-${{ github.run_number }} — Logistics-Zero
+          body: |
+            ### Automated Sovereign Release v3.0.0 (Build ${{ github.run_number }})
+            * Zero-Telemetry execution
+            * Parallel C++20 AST Engine
+            * Direct GS1 GIAI thermal tag printing
+          draft: false
+          prerelease: false
+          files: AssetInventory_v3.0_win-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
