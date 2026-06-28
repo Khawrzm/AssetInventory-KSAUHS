@@ -19,6 +19,8 @@ public sealed class MainForm : Form
     private List<Asset>              _filtered = new();
     private string?                  _statusFilter;
     private bool                     _suppressSave;   // blocks auto-save during grid rebind
+    private bool                     _isArabic = false;
+    private string T(string english, string arabic) => _isArabic ? arabic : english;
 
     // Cached GDI resources (never create fonts inside OnPaint)
     private static readonly Font _tagFont = new("Segoe UI", 9f, FontStyle.Bold);
@@ -73,6 +75,7 @@ public sealed class MainForm : Form
     // ═══════════════════════════════════════════════════════════════════
     private void BuildSidebar()
     {
+        _sidebar.Controls.Clear();
         _sidebar.Dock      = DockStyle.Left;
         _sidebar.Width     = 214;
         _sidebar.BackColor = Theme.SidebarBg;
@@ -87,16 +90,20 @@ public sealed class MainForm : Form
             e.Graphics.FillRectangle(br, p.ClientRectangle);
             e.Graphics.FillRectangle(new SolidBrush(Theme.Blue), 0, 0, 4, p.Height);
 
+            int emojiX = _isArabic ? p.Width - 42 : 12;
+            int textX  = _isArabic ? 12 : 52;
+            var align  = _isArabic ? TextFormatFlags.Right : TextFormatFlags.Left;
+
             TextRenderer.DrawText(e.Graphics, "📦", new Font("Segoe UI Emoji", 17f),
-                new Rectangle(12, 0, 38, p.Height), Color.White,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
-            TextRenderer.DrawText(e.Graphics, "Asset Inventory", Theme.FTitle,
-                new Rectangle(52, 4, p.Width - 56, p.Height - 18), Color.White,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
-            TextRenderer.DrawText(e.Graphics, "KSAUHS Enterprise",
-                new Font("Segoe UI", 7.5f), new Rectangle(52, 0, p.Width - 56, p.Height + 10),
+                new Rectangle(emojiX, 0, 38, p.Height), Color.White,
+                TextFormatFlags.VerticalCenter | align);
+            TextRenderer.DrawText(e.Graphics, T("Asset Inventory", "جرد الممتلكات"), Theme.FTitle,
+                new Rectangle(textX, 4, p.Width - 64, p.Height - 18), Color.White,
+                TextFormatFlags.VerticalCenter | align);
+            TextRenderer.DrawText(e.Graphics, T("KSAUHS Enterprise", "جامعة الملك سعود"),
+                new Font("Segoe UI", 7.5f), new Rectangle(textX, 0, p.Width - 64, p.Height + 10),
                 Color.FromArgb(148, 163, 184),
-                TextFormatFlags.Bottom | TextFormatFlags.Left);
+                TextFormatFlags.Bottom | align);
         };
 
         // Nav flow
@@ -108,34 +115,44 @@ public sealed class MainForm : Form
         };
 
         // View buttons
-        Section(navFlow, "VIEWS");
-        ViewBtn(navFlow, "  ◈  Assets",        isAnalytics: false, isDefault: true);
-        ViewBtn(navFlow, "  📊  Analytics",     isAnalytics: true);
+        Section(navFlow, T("VIEWS", "العروض"));
+        ViewBtn(navFlow, T("  ◈  Assets", "  ◈  الأصول"),        isAnalytics: false, isDefault: true);
+        ViewBtn(navFlow, T("  📊  Analytics", "  📊  التحليلات"),     isAnalytics: true);
 
         // Filter buttons
-        Section(navFlow, "FILTER BY STATUS");
-        FilterBtn(navFlow, "  ◉  All Assets",    null,           isDefault: true);
-        FilterBtn(navFlow, "  ✅  Verified",      "VERIFIED");
-        FilterBtn(navFlow, "  ⏳  Pending",       "PENDING");
-        FilterBtn(navFlow, "  🔄  Transferred",  "TRANSFERRED");
-        FilterBtn(navFlow, "  🗑  Disposed",      "DISPOSED");
+        Section(navFlow, T("FILTER BY STATUS", "تصفية حسب الحالة"));
+        FilterBtn(navFlow, T("  ◉  All Assets", "  ◉  كل الأصول"),    null,           isDefault: true);
+        FilterBtn(navFlow, T("  ✅  Verified", "  ✅  المحققة"),      "VERIFIED");
+        FilterBtn(navFlow, T("  ⏳  Pending", "  ⏳  المعلقة"),       "PENDING");
+        FilterBtn(navFlow, T("  🔄  Transferred", "  🔄  المنقولة"),  "TRANSFERRED");
+        FilterBtn(navFlow, T("  🗑  Disposed", "  🗑  المستبعدة"),      "DISPOSED");
 
         // Actions
-        Section(navFlow, "TOOLS");
-        ActionBtn(navFlow, "  ↑  Import CSV",      OnImport);
-        ActionBtn(navFlow, "  ↓  Export Excel",    OnExport);
-        ActionBtn(navFlow, "  ↓  Export CSV",      OnExportCsv);
+        Section(navFlow, T("TOOLS", "الأدوات"));
+        ActionBtn(navFlow, T("  ↑  Import CSV", "  ↑  استيراد CSV"),      OnImport);
+        ActionBtn(navFlow, T("  ↓  Export Excel", "  ↓  تصدير Excel"),    OnExport);
+        ActionBtn(navFlow, T("  ↓  Export CSV", "  ↓  تصدير CSV"),      OnExportCsv);
 
         // Footer
-        var footer = new Panel { Dock = DockStyle.Bottom, Height = 34, BackColor = Theme.SidebarBg };
+        var footer = new Panel { Dock = DockStyle.Bottom, Height = 40, BackColor = Theme.SidebarBg };
         footer.Paint += (s, e) =>
         {
             var p = (Panel)s!;
             e.Graphics.FillRectangle(new SolidBrush(Theme.SidebarBorder), 0, 0, p.Width, 1);
-            TextRenderer.DrawText(e.Graphics, "v3.0  ·  No Telemetry  ·  Offline",
-                Theme.FSidebarSm, p.ClientRectangle, Color.FromArgb(71, 85, 105),
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         };
+        var btnLang = new Button
+        {
+            Text = _isArabic ? "🌐 Switch to English" : "🌐 التحويل للعربية",
+            Dock = DockStyle.Fill,
+            FlatStyle = FlatStyle.Flat,
+            ForeColor = Color.FromArgb(148, 163, 184),
+            Font = Theme.FSidebarSm,
+            Cursor = Cursors.Hand
+        };
+        btnLang.FlatAppearance.BorderSize = 0;
+        btnLang.FlatAppearance.MouseOverBackColor = Theme.SidebarHover;
+        btnLang.Click += (s, e) => ToggleLanguage();
+        footer.Controls.Add(btnLang);
 
         var navScroll = new Panel { Dock = DockStyle.Fill, BackColor = Theme.SidebarBg, AutoScroll = true };
         navScroll.Controls.Add(navFlow);
@@ -150,8 +167,9 @@ public sealed class MainForm : Form
             Text = title, ForeColor = Color.FromArgb(55, 65, 81),
             Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
             AutoSize = false, Size = new Size(214, 26),
-            TextAlign = ContentAlignment.BottomLeft,
-            Padding = new Padding(16, 0, 0, 2), BackColor = Theme.SidebarBg
+            TextAlign = _isArabic ? ContentAlignment.BottomRight : ContentAlignment.BottomLeft,
+            Padding = _isArabic ? new Padding(0, 0, 16, 2) : new Padding(16, 0, 0, 2),
+            BackColor = Theme.SidebarBg
         });
     }
 
@@ -188,7 +206,7 @@ public sealed class MainForm : Form
         f.Controls.Add(btn);
     }
 
-    private static Button NavBtn(string text, bool active)
+    private Button NavBtn(string text, bool active)
     {
         var b = new Button
         {
@@ -196,8 +214,9 @@ public sealed class MainForm : Form
             BackColor = active ? Theme.SidebarActive : Theme.SidebarBg,
             ForeColor = active ? Color.White : Theme.SidebarText,
             Font = Theme.FSidebar, Size = new Size(214, 38),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(8, 0, 0, 0), Cursor = Cursors.Hand
+            TextAlign = _isArabic ? ContentAlignment.MiddleRight : ContentAlignment.MiddleLeft,
+            Padding = _isArabic ? new Padding(0, 0, 8, 0) : new Padding(8, 0, 0, 0),
+            Cursor = Cursors.Hand
         };
         b.FlatAppearance.BorderSize         = 0;
         b.FlatAppearance.MouseOverBackColor = Theme.SidebarHover;
@@ -234,9 +253,9 @@ public sealed class MainForm : Form
         var hLbl = new Label
         {
             Dock = DockStyle.Fill, ForeColor = Color.White, Font = Theme.FTitle,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(20, 0, 0, 0),
-            Text = "Asset Inventory  ·  KSAUHS Enterprise"
+            TextAlign = _isArabic ? ContentAlignment.MiddleRight : ContentAlignment.MiddleLeft,
+            Padding = _isArabic ? new Padding(0, 0, 20, 0) : new Padding(20, 0, 0, 0),
+            Text = T("Asset Inventory  ·  KSAUHS Enterprise", "نظام جرد الممتلكات  ·  جامعة الملك سعود")
         };
         header.Controls.Add(hLbl);
 
@@ -260,6 +279,7 @@ public sealed class MainForm : Form
     // ── KPI Cards ────────────────────────────────────────────────────────
     private void BuildKpiRow()
     {
+        _kpiRow.Controls.Clear();
         _kpiRow.Dock      = DockStyle.Top;
         _kpiRow.Height    = 106;
         _kpiRow.BackColor = Theme.ContentBg;
@@ -267,7 +287,7 @@ public sealed class MainForm : Form
 
         var flow = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight,
+            Dock = DockStyle.Fill, FlowDirection = _isArabic ? FlowDirection.RightToLeft : FlowDirection.LeftToRight,
             WrapContents = false, BackColor = Color.Transparent
         };
 
@@ -306,32 +326,58 @@ public sealed class MainForm : Form
             g.FillPath(Brushes.White, path);
             using var pen  = new Pen(Theme.Border, 1f);
             g.DrawPath(pen, path);
-            // Left accent bar
-            g.FillRectangle(new SolidBrush(accent), 0, 0, 4, p.Height - 2);
-            // Icon bg
+
+            bool isRtl = _isArabic;
+
+            // Accent bar placement
+            if (isRtl)
+                g.FillRectangle(new SolidBrush(accent), p.Width - 6, 0, 4, p.Height - 2);
+            else
+                g.FillRectangle(new SolidBrush(accent), 0, 0, 4, p.Height - 2);
+
+            // Icon bg & Emoji
+            int iconX = isRtl ? 14 : p.Width - 38;
             g.FillEllipse(new SolidBrush(Color.FromArgb(18, accent.R, accent.G, accent.B)),
-                p.Width - 38, 10, 24, 24);
+                iconX, 10, 24, 24);
+            TextRenderer.DrawText(g, icon, new Font("Segoe UI Emoji", 10f),
+                new Rectangle(iconX, 10, 24, 24), Color.Empty,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
             // Value
             string val = GetKpiVal((string)p.Tag!);
+            int textX = isRtl ? 38 : 12;
+            var align = isRtl ? TextFormatFlags.Right : TextFormatFlags.Left;
             TextRenderer.DrawText(g, val, Theme.FKpiNum,
-                new Rectangle(12, 6, p.Width - 50, 38), Theme.TextPrimary,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+                new Rectangle(textX, 6, p.Width - 50, 38), Theme.TextPrimary,
+                align | TextFormatFlags.VerticalCenter);
 
             // Label
-            TextRenderer.DrawText(g, (string)p.Tag!, Theme.FKpiLbl,
-                new Rectangle(12, 46, p.Width - 20, 20), Theme.TextSecondary,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            string labelText = (string)p.Tag! switch
+            {
+                "Total"       => T("Total", "الإجمالي"),
+                "Verified"    => T("Verified", "المحققة"),
+                "Pending"     => T("Pending", "المعلقة"),
+                "Transferred" => T("Transferred", "المنقولة"),
+                "Disposed"    => T("Disposed", "المستبعدة"),
+                _             => (string)p.Tag!
+            };
+            TextRenderer.DrawText(g, labelText, Theme.FKpiLbl,
+                new Rectangle(textX, 46, p.Width - 50, 20), Theme.TextSecondary,
+                align | TextFormatFlags.VerticalCenter);
 
             // Mini bar (percentage of total)
             if ((string)p.Tag! != "Total" && (_stats?.Total ?? 0) > 0)
             {
                 int cnt = GetKpiCount((string)p.Tag!);
                 double f = cnt * 1.0 / (_stats!.Total);
-                int   bw = (int)((p.Width - 18) * f);
+                int   bw = (int)((p.Width - 24) * f);
                 g.FillRectangle(new SolidBrush(Color.FromArgb(25, accent.R, accent.G, accent.B)),
-                    12, 70, p.Width - 20, 4);
-                if (bw > 0) g.FillRectangle(new SolidBrush(accent), 12, 70, bw, 4);
+                    12, 70, p.Width - 24, 4);
+                if (bw > 0)
+                {
+                    int barX = isRtl ? p.Width - 12 - bw : 12;
+                    g.FillRectangle(new SolidBrush(accent), barX, 70, bw, 4);
+                }
             }
         };
         return card;
@@ -383,14 +429,14 @@ public sealed class MainForm : Form
 
         var flow = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight,
+            Dock = DockStyle.Fill, FlowDirection = _isArabic ? FlowDirection.RightToLeft : FlowDirection.LeftToRight,
             WrapContents = false, Padding = new Padding(0, 8, 0, 8)
         };
 
-        var btnAdd    = TBtn("＋  Add",           Theme.Blue,                    Color.White,  "Ctrl+N");
-        var btnEdit   = TBtn("✎  Edit",           Color.FromArgb(30, 41, 59),   Color.White,  "F2");
-        var btnDelete = TBtn("✕  Delete",         Theme.Red,                     Color.White,  "Del");
-        var btnBulk   = TBtn("⚡  Bulk Status",   Color.FromArgb(109, 40, 217), Color.White,  "");
+        var btnAdd    = TBtn(T("＋  Add", "＋  إضافة"),           Theme.Blue,                    Color.White,  "Ctrl+N");
+        var btnEdit   = TBtn(T("✎  Edit", "✎  تعديل"),           Color.FromArgb(30, 41, 59),   Color.White,  "F2");
+        var btnDelete = TBtn(T("✕  Delete", "✕  حذف"),         Theme.Red,                     Color.White,  "Del");
+        var btnBulk   = TBtn(T("⚡  Bulk Status", "⚡  حالة جماعية"),   Color.FromArgb(109, 40, 217), Color.White,  "");
         var sep1      = Sep();
 
         // Search
@@ -402,19 +448,19 @@ public sealed class MainForm : Form
         };
         var ico = new Label
         {
-            Text = "🔍", Width = 28, Dock = DockStyle.Left,
+            Text = "🔍", Width = 28, Dock = _isArabic ? DockStyle.Right : DockStyle.Left,
             TextAlign = ContentAlignment.MiddleCenter, Font = Theme.FSmall
         };
         _search.BorderStyle     = BorderStyle.None;
         _search.Dock            = DockStyle.Fill;
         _search.BackColor       = Color.White;
         _search.Font            = Theme.FBody;
-        _search.PlaceholderText = "Search tag, description, location, notes…  (Ctrl+F)";
+        _search.PlaceholderText = T("Search tag, description, location, notes…  (Ctrl+F)", "ابحث برقم الأصل، الوصف، الموقع… (Ctrl+F)");
         _search.TextChanged    += (_, _) => ApplyFilter();
         sBox.Controls.AddRange(new Control[] { _search, ico });
 
         var sep2       = Sep();
-        var btnRefresh = TBtn("↺  Refresh", Color.FromArgb(51, 65, 85), Color.White, "F5");
+        var btnRefresh = TBtn(T("↺  Refresh", "↺  تحديث"), Color.FromArgb(51, 65, 85), Color.White, "F5");
 
         flow.Controls.AddRange(new Control[] { btnAdd, btnEdit, btnDelete, btnBulk, sep1, sBox, sep2, btnRefresh });
         tb.Controls.Add(flow);
@@ -448,6 +494,7 @@ public sealed class MainForm : Form
     // ── Grid ─────────────────────────────────────────────────────────────
     private void BuildGrid()
     {
+        _grid.Columns.Clear();
         _grid.Dock                        = DockStyle.Fill;
         _grid.BackgroundColor             = Theme.ContentBg;
         _grid.BorderStyle                 = BorderStyle.None;
@@ -473,14 +520,15 @@ public sealed class MainForm : Form
         _grid.ColumnHeadersDefaultCellStyle.ForeColor          = Theme.GridHeaderFg;
         _grid.ColumnHeadersDefaultCellStyle.Font               = new Font("Segoe UI", 8.5f, FontStyle.Bold);
         _grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = Theme.GridHeader;
-        _grid.ColumnHeadersDefaultCellStyle.Padding            = new Padding(12, 0, 0, 0);
+        _grid.ColumnHeadersDefaultCellStyle.Padding            = _isArabic ? new Padding(0, 0, 12, 0) : new Padding(12, 0, 0, 0);
         _grid.EnableHeadersVisualStyles   = false;
+        _grid.RightToLeft                 = _isArabic ? RightToLeft.Yes : RightToLeft.No;
 
         // TAG: read-only (primary key)
         var colTag = new DataGridViewTextBoxColumn
         {
             Name = "TagNumber",
-            DataPropertyName = "TagNumber", HeaderText = "TAG NUMBER",
+            DataPropertyName = "TagNumber", HeaderText = T("TAG NUMBER", "رقم الأصل"),
             MinimumWidth = 90, FillWeight = 80, ReadOnly = true,
             SortMode = DataGridViewColumnSortMode.Programmatic
         };
@@ -489,7 +537,7 @@ public sealed class MainForm : Form
         var colDesc = new DataGridViewTextBoxColumn
         {
             Name = "AssetDescription",
-            DataPropertyName = "AssetDescription", HeaderText = "DESCRIPTION",
+            DataPropertyName = "AssetDescription", HeaderText = T("DESCRIPTION", "الوصف"),
             MinimumWidth = 180, FillWeight = 220,
             SortMode = DataGridViewColumnSortMode.Programmatic
         };
@@ -498,7 +546,7 @@ public sealed class MainForm : Form
         var colLoc = new DataGridViewTextBoxColumn
         {
             Name = "MajorLoc",
-            DataPropertyName = "MajorLoc", HeaderText = "LOCATION",
+            DataPropertyName = "MajorLoc", HeaderText = T("LOCATION", "الموقع الرئيسي"),
             MinimumWidth = 100, FillWeight = 100,
             SortMode = DataGridViewColumnSortMode.Programmatic
         };
@@ -507,7 +555,7 @@ public sealed class MainForm : Form
         var colMinor = new DataGridViewTextBoxColumn
         {
             Name = "MinorLoc",
-            DataPropertyName = "MinorLoc", HeaderText = "SUB-LOC",
+            DataPropertyName = "MinorLoc", HeaderText = T("SUB-LOC", "الموقع الفرعي"),
             MinimumWidth = 80, FillWeight = 80,
             SortMode = DataGridViewColumnSortMode.Programmatic
         };
@@ -516,7 +564,7 @@ public sealed class MainForm : Form
         var colStatus = new DataGridViewComboBoxColumn
         {
             Name = "Status",
-            DataPropertyName = "Status", HeaderText = "STATUS",
+            DataPropertyName = "Status", HeaderText = T("STATUS", "الحالة"),
             MinimumWidth = 110, FillWeight = 100,
             DataSource   = new[] { "PENDING", "VERIFIED", "DISPOSED", "TRANSFERRED" },
             FlatStyle    = FlatStyle.Flat,
@@ -528,7 +576,7 @@ public sealed class MainForm : Form
         var colNote = new DataGridViewTextBoxColumn
         {
             Name = "Note",
-            DataPropertyName = "Note", HeaderText = "NOTES",
+            DataPropertyName = "Note", HeaderText = T("NOTES", "الملاحظات"),
             MinimumWidth = 120, FillWeight = 160,
             SortMode = DataGridViewColumnSortMode.Programmatic
         };
@@ -543,14 +591,14 @@ public sealed class MainForm : Form
         _grid.ColumnHeaderMouseClick += GridHeader_Click;
 
         // Context menu
-        var ctx = new ContextMenuStrip { Font = Theme.FBody };
-        ctx.Items.Add("✎  فتح للتعديل الكامل", null, (_, _) => OnEdit());
-        ctx.Items.Add("✕  حذف",                null, (_, _) => OnDelete());
+        var ctx = new ContextMenuStrip { Font = Theme.FBody, RightToLeft = _isArabic ? RightToLeft.Yes : RightToLeft.No };
+        ctx.Items.Add(T("✎  Open Full Edit", "✎  فتح للتعديل الكامل"), null, (_, _) => OnEdit());
+        ctx.Items.Add(T("✕  Delete", "✕  حذف"),                null, (_, _) => OnDelete());
         ctx.Items.Add(new ToolStripSeparator());
-        ctx.Items.Add("⚡  تغيير حالة جماعي",  null, (_, _) => OnBulkStatus());
+        ctx.Items.Add(T("⚡  Bulk Status Update", "⚡  تغيير حالة جماعي"),  null, (_, _) => OnBulkStatus());
         ctx.Items.Add(new ToolStripSeparator());
-        ctx.Items.Add("↓  Export Excel",        null, (_, _) => OnExport());
-        ctx.Items.Add("↓  Export CSV",          null, (_, _) => OnExportCsv());
+        ctx.Items.Add(T("↓  Export Excel", "↓  تصدير Excel"),        null, (_, _) => OnExport());
+        ctx.Items.Add(T("↓  Export CSV", "↓  تصدير CSV"),          null, (_, _) => OnExportCsv());
         _grid.ContextMenuStrip = ctx;
     }
 
@@ -564,13 +612,14 @@ public sealed class MainForm : Form
         };
         var flow = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false
+            Dock = DockStyle.Fill, FlowDirection = _isArabic ? FlowDirection.RightToLeft : FlowDirection.LeftToRight, WrapContents = false
         };
         void SL(Label l, int w)
         {
             l.ForeColor = Theme.TextMuted; l.Font = Theme.FSmall;
             l.AutoSize = false; l.Width = w; l.Height = 30;
-            l.TextAlign = ContentAlignment.MiddleLeft; l.Padding = new Padding(4, 0, 0, 0);
+            l.TextAlign = _isArabic ? ContentAlignment.MiddleRight : ContentAlignment.MiddleLeft;
+            l.Padding = _isArabic ? new Padding(0, 0, 4, 0) : new Padding(4, 0, 0, 0);
         }
         SL(_lblTotal, 190); SL(_lblShow, 170); SL(_lblSel, 160);
 
@@ -579,10 +628,11 @@ public sealed class MainForm : Form
 
         var hint = new Label
         {
-            Text = "Ctrl+N  Add  |  F2  Edit  |  Del  Delete  |  Ctrl+F  Search  |  F5  Refresh  |  Tab  Next Cell",
+            Text = T("Ctrl+N  Add  |  F2  Edit  |  Del  Delete  |  Ctrl+F  Search  |  F5  Refresh  |  Tab  Next Cell",
+                     "Ctrl+N  إضافة  |  F2  تعديل  |  Del  حذف  |  Ctrl+F  بحث  |  F5  تحديث  |  Tab  الحقل التالي"),
             ForeColor = Color.FromArgb(55, 65, 81), Font = Theme.FSmall,
-            Dock = DockStyle.Right, Width = 570, Height = 30,
-            TextAlign = ContentAlignment.MiddleRight
+            Dock = _isArabic ? DockStyle.Left : DockStyle.Right, Width = 570, Height = 30,
+            TextAlign = _isArabic ? ContentAlignment.MiddleLeft : ContentAlignment.MiddleRight
         };
 
         flow.Controls.AddRange(new Control[] { _lblTotal, s1, _lblShow, s2, _lblSel });
@@ -848,9 +898,31 @@ public sealed class MainForm : Form
 
     private void UpdateStatus()
     {
-        _lblTotal.Text = $"Total: {_all.Count} assets";
-        _lblShow.Text  = $"Showing: {_filtered.Count}";
-        _lblSel.Text   = $"Selected: {_grid.SelectedRows.Count}";
+        _lblTotal.Text = T($"Total: {_all.Count} assets", $"الإجمالي: {_all.Count} أصول");
+        _lblShow.Text  = T($"Showing: {_filtered.Count}", $"المعروض: {_filtered.Count}");
+        _lblSel.Text   = T($"Selected: {_grid.SelectedRows.Count}", $"المحدد: {_grid.SelectedRows.Count}");
+    }
+
+    private void ToggleLanguage()
+    {
+        _isArabic = !_isArabic;
+        RightToLeft = _isArabic ? RightToLeft.Yes : RightToLeft.No;
+
+        // Clear and rebuild layout
+        Controls.Clear();
+        _nav.Clear();
+        _sidebar.Controls.Clear();
+        _kpiRow.Controls.Clear();
+        _gridView.Controls.Clear();
+
+        SuspendLayout();
+
+        BuildSidebar();
+        BuildContent();
+        BuildToast();
+
+        ResumeLayout(true);
+        RefreshAll();
     }
 
     // ═══════════════════════════════════════════════════════════════════
