@@ -497,7 +497,7 @@ public sealed partial class MainForm : Form
     {
         var card = new Panel
         {
-            Size = new Size(170, 82), BackColor = Color.White,
+            Size = new Size(170, 82), BackColor = Theme.CardBg,
             Margin = new Padding(0, 0, 10, 0), Tag = tag, Cursor = Cursors.Hand
         };
         card.Paint += (s, e) =>
@@ -510,7 +510,8 @@ public sealed partial class MainForm : Form
             g.FillRectangle(_kpiShadowBrush, new Rectangle(2, 2, p.Width - 1, p.Height - 1));
             // Card face
             using var path = Pill(new Rectangle(0, 0, p.Width - 2, p.Height - 2), 6);
-            g.FillPath(Brushes.White, path);
+            using var cardBgBrush = new SolidBrush(Theme.CardBg);
+            g.FillPath(cardBgBrush, path);
             using var pen  = new Pen(Theme.Border, 1f);
             g.DrawPath(pen, path);
 
@@ -616,7 +617,7 @@ public sealed partial class MainForm : Form
     {
         var tb = new Panel
         {
-            Dock = DockStyle.Top, Height = 50, BackColor = Color.White,
+            Dock = DockStyle.Top, Height = 50, BackColor = Theme.ToolbarBg,
             Padding = new Padding(16, 0, 16, 0)
         };
         tb.Paint += (s, e) =>
@@ -630,13 +631,13 @@ public sealed partial class MainForm : Form
         };
 
         var btnAdd    = TBtn(T("＋  Add", "＋  إضافة"),           Theme.Blue,                    Color.White,  "Ctrl+N");
-        var btnEdit   = TBtn(T("✎  Edit", "✎  تعديل"),           Color.FromArgb(30, 41, 59),   Color.White,  "F2");
+        var btnEdit   = TBtn(T("✎  Edit", "✎  تعديل"),           Color.FromArgb(49, 54, 63),   Color.White,  "F2");
         var btnDelete = TBtn(T("✕  Delete", "✕  حذف"),         Theme.Red,                     Color.White,  "Del");
         var btnBulk   = TBtn(T("⚡  Bulk Status", "⚡  حالة جماعية"),   Color.FromArgb(109, 40, 217), Color.White,  "");
         var sep1      = Sep();
 
         // Search
-        var sBox = new Panel { Size = new Size(290, 32), BackColor = Color.White };
+        var sBox = new Panel { Size = new Size(290, 32), BackColor = Theme.CardBg };
         sBox.Paint += (s, e) =>
         {
             using var p = new Pen(Theme.Border, 1f);
@@ -645,18 +646,20 @@ public sealed partial class MainForm : Form
         var ico = new Label
         {
             Text = "🔍", Width = 28, Dock = _isArabic ? DockStyle.Right : DockStyle.Left,
-            TextAlign = ContentAlignment.MiddleCenter, Font = _fSmall
+            TextAlign = ContentAlignment.MiddleCenter, Font = _fSmall,
+            BackColor = Theme.CardBg, ForeColor = Theme.TextSecondary
         };
         _search.BorderStyle     = BorderStyle.None;
         _search.Dock            = DockStyle.Fill;
-        _search.BackColor       = Color.White;
+        _search.BackColor       = Theme.CardBg;
+        _search.ForeColor       = Theme.TextPrimary;
         _search.Font            = _fBody;
         _search.PlaceholderText = T("Search tag, description, location, notes…  (Ctrl+F)", "ابحث برقم الأصل، الوصف، الموقع… (Ctrl+F)");
         _search.TextChanged    += (_, _) => ApplyFilter();
         sBox.Controls.AddRange(new Control[] { _search, ico });
 
         var sep2       = Sep();
-        var btnRefresh = TBtn(T("↺  Refresh", "↺  تحديث"), Color.FromArgb(51, 65, 85), Color.White, "F5");
+        var btnRefresh = TBtn(T("↺  Refresh", "↺  تحديث"), Color.FromArgb(49, 54, 63), Color.White, "F5");
 
         flow.Controls.AddRange(new Control[] { btnAdd, btnEdit, btnDelete, btnBulk, sep1, sBox, sep2, btnRefresh });
         tb.Controls.Add(flow);
@@ -694,7 +697,7 @@ public sealed partial class MainForm : Form
         _grid.Dock                        = DockStyle.Fill;
         _grid.BackgroundColor             = Theme.ContentBg;
         _grid.BorderStyle                 = BorderStyle.None;
-        _grid.CellBorderStyle             = DataGridViewCellBorderStyle.None;
+        _grid.CellBorderStyle             = DataGridViewCellBorderStyle.SingleHorizontal;
         _grid.GridColor                   = Theme.GridBorder;
         _grid.SelectionMode               = DataGridViewSelectionMode.FullRowSelect;
         _grid.MultiSelect                 = true;

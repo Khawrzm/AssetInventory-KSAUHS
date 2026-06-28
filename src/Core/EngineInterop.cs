@@ -38,19 +38,48 @@ public static partial class EngineInterop
         double* resultMatrix
     );
 
+    [LibraryImport("sovereign_engine.dll", EntryPoint = "CalculateDepreciation")]
+    private static unsafe partial void CalculateDepreciationInternal(
+        double* values,
+        int size,
+        double rate
+    );
+
     /// <summary>
-    /// Computes summary statistics for assets using the optimized native C++ engine.
+    /// Computes summary statistics for assets using the optimized native C++ engine, with a managed fallback.
     /// </summary>
     public static unsafe void CalculateStats(ReadOnlySpan<int> statuses, out int total, out int verified, out int pending, out int disposed, out int transferred)
     {
-        fixed (int* ptr = statuses)
+        try
         {
-            CalculateStatsInternal(ptr, statuses.Length, out total, out verified, out pending, out disposed, out transferred);
+            fixed (int* ptr = statuses)
+            {
+                CalculateStatsInternal(ptr, statuses.Length, out total, out verified, out pending, out disposed, out transferred);
+            }
+        }
+        catch (DllNotFoundException)
+        {
+            // Managed C# Fallback
+            total = statuses.Length;
+            verified = 0;
+            pending = 0;
+            disposed = 0;
+            transferred = 0;
+            foreach (var status in statuses)
+            {
+                switch (status)
+                {
+                    case 1: verified++; break;
+                    case 2: pending++; break;
+                    case 3: disposed++; break;
+                    case 4: transferred++; break;
+                }
+            }
         }
     }
 
     /// <summary>
-    /// Performs depreciation projection calculations utilizing the native C++ matrix engine.
+    /// Performs depreciation projection calculations utilizing the native C++ matrix engine, with a managed fallback.
     /// </summary>
     public static unsafe void ProjectDepreciation(ReadOnlySpan<double> initialValues, ReadOnlySpan<double> rates, Span<double> result)
     {
@@ -59,11 +88,50 @@ public static partial class EngineInterop
             throw new ArgumentException("Result buffer is too small to hold the projected matrix.", nameof(result));
         }
 
-        fixed (double* pInit = initialValues)
-        fixed (double* pRates = rates)
-        fixed (double* pResult = result)
+        try
         {
-            ProjectDepreciationMatrixInternal(pInit, initialValues.Length, pRates, rates.Length, pResult);
+            fixed (double* pInit = initialValues)
+            fixed (double* pRates = rates)
+            fixed (double* pResult = result)
+            {
+                ProjectDepreciationMatrixInternal(pInit, initialValues.Length, pRates, rates.Length, pResult);
+            }
+        }
+        catch (DllNotFoundException)
+        {
+            // Managed C# Fallback
+            int idx = 0;
+            for (int r = 0; r < initialValues.Length; ++r)
+            {
+                double value = initialValues[r];
+                for (int c = 0; c < rates.Length; ++c)
+                {
+                    value = value * (1.0 - rates[c]);
+                    result[idx++] = value;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Computes asset depreciation in-place using raw pointer spans, with a managed fallback.
+    /// </summary>
+    public static unsafe void CalculateDepreciation(Span<double> values, double rate)
+    {
+        try
+        {
+            fixed (double* ptr = values)
+            {
+                CalculateDepreciationInternal(ptr, values.Length, rate);
+            }
+        }
+        catch (DllNotFoundException)
+        {
+            // Managed C# Fallback
+            for (int i = 0; i < values.Length; ++i)
+            {
+                values[i] *= (1.0 - rate);
+            }
         }
     }
 }
