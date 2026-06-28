@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
@@ -891,7 +892,7 @@ public sealed class MainForm : Form
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
     }
 
-    private void OnBulkStatus()
+    private async void OnBulkStatus()
     {
         var tags = SelectedTags();
         if (tags.Count == 0) { Toast("⚠  اختر أصولاً أولاً", Theme.Yellow); return; }
@@ -913,42 +914,64 @@ public sealed class MainForm : Form
         f.AcceptButton = btn;
 
         if (f.ShowDialog(this) != DialogResult.OK) return;
+        Cursor = Cursors.WaitCursor;
         try
         {
-            _repo.BulkSetStatus(tags, cb.SelectedItem!.ToString()!);
+            string newStatus = cb.SelectedItem!.ToString()!;
+            await Task.Run(() => _repo.BulkSetStatus(tags, newStatus));
             RefreshAll();
-            Toast($"✓  تم تغيير حالة {tags.Count} أصول → {cb.SelectedItem}", Color.FromArgb(109, 40, 217));
+            Toast($"✓  تم تغيير حالة {tags.Count} أصول → {newStatus}", Color.FromArgb(109, 40, 217));
         }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
+        finally { Cursor = Cursors.Default; }
     }
 
-    private void OnImport()
+    private async void OnImport()
     {
         using var ofd = new OpenFileDialog { Filter = "CSV Files|*.csv", Title = "استيراد CSV" };
         if (ofd.ShowDialog(this) != DialogResult.OK) return;
+        Cursor = Cursors.WaitCursor;
         try
         {
-            ImportService.ImportFromCsv(ofd.FileName, new DatabaseService());
+            string filePath = ofd.FileName;
+            await Task.Run(() => ImportService.ImportFromCsv(filePath, new DatabaseService()));
             RefreshAll();
-            Toast($"✓  استيراد: {System.IO.Path.GetFileName(ofd.FileName)}", Theme.Green);
+            Toast($"✓  استيراد: {System.IO.Path.GetFileName(filePath)}", Theme.Green);
         }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
+        finally { Cursor = Cursors.Default; }
     }
 
-    private void OnExport()
+    private async void OnExport()
     {
         using var sfd = new SaveFileDialog { Filter = "Excel|*.xlsx", FileName = $"AssetInventory_{DateTime.Now:yyyyMMdd}.xlsx" };
         if (sfd.ShowDialog(this) != DialogResult.OK) return;
-        try { ExcelExportService.ExportToXlsx(_filtered, sfd.FileName); Toast($"✓  Excel: {System.IO.Path.GetFileName(sfd.FileName)}", Theme.Green); }
+        Cursor = Cursors.WaitCursor;
+        try
+        {
+            string filePath = sfd.FileName;
+            var list = new List<Asset>(_filtered);
+            await Task.Run(() => ExcelExportService.ExportToXlsx(list, filePath));
+            Toast($"✓  Excel: {System.IO.Path.GetFileName(filePath)}", Theme.Green);
+        }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
+        finally { Cursor = Cursors.Default; }
     }
 
-    private void OnExportCsv()
+    private async void OnExportCsv()
     {
         using var sfd = new SaveFileDialog { Filter = "CSV|*.csv", FileName = $"AssetInventory_{DateTime.Now:yyyyMMdd}.csv" };
         if (sfd.ShowDialog(this) != DialogResult.OK) return;
-        try { ExportService.ExportToCsv(_filtered, sfd.FileName); Toast($"✓  CSV: {System.IO.Path.GetFileName(sfd.FileName)}", Theme.Green); }
+        Cursor = Cursors.WaitCursor;
+        try
+        {
+            string filePath = sfd.FileName;
+            var list = new List<Asset>(_filtered);
+            await Task.Run(() => ExportService.ExportToCsv(list, filePath));
+            Toast($"✓  CSV: {System.IO.Path.GetFileName(filePath)}", Theme.Green);
+        }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
+        finally { Cursor = Cursors.Default; }
     }
 
     // ═══════════════════════════════════════════════════════════════════
