@@ -1,0 +1,25 @@
+# Build outputs
+bin/
+obj/
+publish/
+
+# Database (user data - not committed)
+*.db
+*.db-shm
+*.db-wal
+
+# Config (user-specific)
+config.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vs/
+*.user
+*.suo
+.idea/
+
+# Logs
+*.log

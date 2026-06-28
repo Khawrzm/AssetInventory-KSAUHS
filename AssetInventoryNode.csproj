@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyName>AssetInventory</AssemblyName>
+    <RootNamespace>AssetInventory</RootNamespace>
+    <Version>2.0.0</Version>
+    <Company>KSAUHS</Company>
+    <Product>Asset Inventory Enterprise</Product>
+
+    <!-- ── No Telemetry ─────────────────────────────────────── -->
+    <EventSourceSupport>false</EventSourceSupport>
+    <DiagnosticSupported>false</DiagnosticSupported>
+    <HttpActivityPropagationSupport>false</HttpActivityPropagationSupport>
+    <MetricsSupport>false</MetricsSupport>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+
+    <!-- ── Publish ─────────────────────────────────────────── -->
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="8.0.0" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" />
+    <PackageReference Include="ClosedXML" Version="0.102.3" />
+  </ItemGroup>
+</Project>

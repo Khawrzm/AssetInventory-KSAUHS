@@ -1,0 +1,173 @@
+using System.Collections.Generic;
+using Microsoft.Data.Sqlite;
+using AssetInventory.Core;
+using AssetInventory.Models;
+
+namespace AssetInventory.Data;
+
+public class AssetRepository
+{
+    private string ConnStr => $"Data Source={ConfigService.Load().DatabasePath}";
+
+    public AssetRepository()
+    {
+        using var conn = new SqliteConnection(ConnStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            CREATE TABLE IF NOT EXISTS Assets (
+                Tag       TEXT PRIMARY KEY,
+                Desc      TEXT NOT NULL DEFAULT '',
+                Loc       TEXT NOT NULL DEFAULT '',
+                Minor     TEXT NOT NULL DEFAULT '',
+                Status    TEXT NOT NULL DEFAULT 'PENDING',
+                Hash      TEXT,
+                Note      TEXT NOT NULL DEFAULT '',
+                CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+                UpdatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+            )";
+        cmd.ExecuteNonQuery();
+
+        // Migrate older DBs that are missing newer columns
+        foreach (var col in new[] {
+            "ALTER TABLE Assets ADD COLUMN Note TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE Assets ADD COLUMN CreatedAt TEXT NOT NULL DEFAULT (datetime('now'))",
+            "ALTER TABLE Assets ADD COLUMN UpdatedAt TEXT NOT NULL DEFAULT (datetime('now'))",
+        })
+        {
+            try { cmd.CommandText = col; cmd.ExecuteNonQuery(); } catch { /* already exists */ }
+        }
+    }
+
+    public List<Asset> GetAll()
+    {
+        var list = new List<Asset>();
+        using var conn = new SqliteConnection(ConnStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT Tag,Desc,Loc,Minor,Status,Hash,Note FROM Assets ORDER BY Tag";
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(Map(r));
+        return list;
+    }
+
+    public List<Asset> GetByStatus(string status)
+    {
+        var list = new List<Asset>();
+        using var conn = new SqliteConnection(ConnStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT Tag,Desc,Loc,Minor,Status,Hash,Note FROM Assets WHERE Status=@s ORDER BY Tag";
+        cmd.Parameters.AddWithValue("@s", status);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(Map(r));
+        return list;
+    }
+
+    public AssetStats GetStats()
+    {
+        using var conn = new SqliteConnection(ConnStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT
+                COUNT(*)                                              AS Total,
+                SUM(CASE WHEN Status='VERIFIED'    THEN 1 ELSE 0 END) AS Verified,
+                SUM(CASE WHEN Status='PENDING'     THEN 1 ELSE 0 END) AS Pending,
+                SUM(CASE WHEN Status='DISPOSED'    THEN 1 ELSE 0 END) AS Disposed,
+                SUM(CASE WHEN Status='TRANSFERRED' THEN 1 ELSE 0 END) AS Transferred
+            FROM Assets";
+        using var r = cmd.ExecuteReader();
+        return r.Read()
+            ? new AssetStats(r.GetInt32(0), r.GetInt32(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4))
+            : new AssetStats(0, 0, 0, 0, 0);
+    }
+
+    public Dictionary<string, int> GetLocationStats()
+    {
+        var dict = new Dictionary<string, int>();
+        using var conn = new SqliteConnection(ConnStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT Loc, COUNT(*) AS Cnt
+            FROM Assets
+            WHERE Loc <> ''
+            GROUP BY Loc
+            ORDER BY Cnt DESC";
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            dict[r.GetString(0)] = r.GetInt32(1);
+        return dict;
+    }
+
+    public void Save(Asset asset)
+    {
+        using var conn  = new SqliteConnection(ConnStr);
+        conn.Open();
+        using var trans = conn.BeginTransaction();
+        using var cmd   = conn.CreateCommand();
+        cmd.Transaction = trans;
+        cmd.CommandText = @"
+            INSERT INTO Assets(Tag,Desc,Loc,Minor,Status,Hash,Note,CreatedAt,UpdatedAt)
+            VALUES(@tag,@desc,@loc,@minor,@stat,@hash,@note,datetime('now'),datetime('now'))
+            ON CONFLICT(Tag) DO UPDATE SET
+                Desc=excluded.Desc,
+                Loc=excluded.Loc,
+                Minor=excluded.Minor,
+                Status=excluded.Status,
+                Hash=excluded.Hash,
+                Note=excluded.Note,
+                UpdatedAt=datetime('now')";
+        cmd.Parameters.AddWithValue("@tag",   asset.TagNumber);
+        cmd.Parameters.AddWithValue("@desc",  asset.AssetDescription);
+        cmd.Parameters.AddWithValue("@loc",   asset.MajorLoc);
+        cmd.Parameters.AddWithValue("@minor", asset.MinorLoc);
+        cmd.Parameters.AddWithValue("@stat",  asset.Status);
+        cmd.Parameters.AddWithValue("@hash",  asset.DataHash);
+        cmd.Parameters.AddWithValue("@note",  asset.Note);
+        cmd.ExecuteNonQuery();
+        trans.Commit();
+    }
+
+    public void BulkSetStatus(IEnumerable<string> tags, string newStatus)
+    {
+        using var conn  = new SqliteConnection(ConnStr);
+        conn.Open();
+        using var trans = conn.BeginTransaction();
+        foreach (var tag in tags)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = trans;
+            cmd.CommandText = "UPDATE Assets SET Status=@s, UpdatedAt=datetime('now') WHERE Tag=@t";
+            cmd.Parameters.AddWithValue("@s", newStatus);
+            cmd.Parameters.AddWithValue("@t", tag);
+            cmd.ExecuteNonQuery();
+        }
+        trans.Commit();
+    }
+
+    public void Delete(string tag)
+    {
+        using var conn  = new SqliteConnection(ConnStr);
+        conn.Open();
+        using var trans = conn.BeginTransaction();
+        using var cmd   = conn.CreateCommand();
+        cmd.Transaction = trans;
+        cmd.CommandText = "DELETE FROM Assets WHERE Tag=@tag";
+        cmd.Parameters.AddWithValue("@tag", tag);
+        cmd.ExecuteNonQuery();
+        trans.Commit();
+    }
+
+    private static Asset Map(SqliteDataReader r) => new()
+    {
+        TagNumber        = r.GetString(0),
+        AssetDescription = r.IsDBNull(1) ? "" : r.GetString(1),
+        MajorLoc         = r.IsDBNull(2) ? "" : r.GetString(2),
+        MinorLoc         = r.IsDBNull(3) ? "" : r.GetString(3),
+        Status           = r.IsDBNull(4) ? "PENDING" : r.GetString(4),
+        DataHash         = r.IsDBNull(5) ? "" : r.GetString(5),
+        Note             = r.IsDBNull(6) ? "" : r.GetString(6),
+    };
+}
