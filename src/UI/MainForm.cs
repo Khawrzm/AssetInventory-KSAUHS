@@ -22,8 +22,31 @@ public sealed class MainForm : Form
     private bool                     _isArabic = false;
     private string T(string english, string arabic) => _isArabic ? arabic : english;
 
-    // Cached GDI resources (never create fonts inside OnPaint)
-    private static readonly Font _tagFont = new("Segoe UI", 9f, FontStyle.Bold);
+    // ── Cached GDI resources to prevent leaks ────────────────────────────
+    private readonly Font _tagFont;
+    private readonly Font _emojiFontLogo = new("Segoe UI Emoji", 17f);
+    private readonly Font _subtitleFontLogo;
+    private readonly Font _emojiFontKpi = new("Segoe UI Emoji", 10f);
+
+    private readonly Font _fTitle;
+    private readonly Font _fBody;
+    private readonly Font _fSmall;
+    private readonly Font _fGrid;
+    private readonly Font _fBadge;
+    private readonly Font _fBtn;
+    private readonly Font _fKpiNum;
+    private readonly Font _fKpiLbl;
+    private readonly Font _fSidebar;
+    private readonly Font _fSidebarSm;
+
+    private readonly SolidBrush _gridSelectedBrush = new(Theme.GridSelected);
+    private readonly SolidBrush _gridEvenBrush = new(Theme.GridEven);
+    private readonly SolidBrush _gridOddBrush = new(Theme.GridOdd);
+    private readonly SolidBrush _gridBorderBrush = new(Theme.GridBorder);
+    private readonly SolidBrush _blueBrush = new(Theme.Blue);
+    private readonly SolidBrush _sidebarBorderBrush = new(Theme.SidebarBorder);
+    private readonly SolidBrush _toastBgBrush = new(Theme.SidebarActive);
+    private readonly SolidBrush _kpiShadowBrush = new(Color.FromArgb(10, 0, 0, 0));
 
     // ── Controls ─────────────────────────────────────────────────────────
     private readonly DataGridView   _grid      = new();
@@ -57,9 +80,39 @@ public sealed class MainForm : Form
         MinimumSize   = new Size(1000, 620);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor     = Theme.ContentBg;
-        Font          = Theme.FBody;
         DoubleBuffered= true;
         KeyPreview    = true;
+
+        // Resolve bilingual-safe font family to prevent vertical clipping
+        string ff = GetBilingualFontFamily();
+        _fTitle = new Font(ff, 13f, FontStyle.Bold);
+        _fBody = new Font(ff, 9.5f);
+        _fSmall = new Font(ff, 8.5f);
+        _fGrid = new Font(ff, 9f);
+        _fBadge = new Font(ff, 7.5f, FontStyle.Bold);
+        _fBtn = new Font(ff, 9f);
+        _fKpiNum = new Font(ff, 22f, FontStyle.Bold);
+        _fKpiLbl = new Font(ff, 8f);
+        _fSidebar = new Font(ff, 9.5f);
+        _fSidebarSm = new Font(ff, 8f);
+        
+        _tagFont = new Font(ff, 9f, FontStyle.Bold);
+        _subtitleFontLogo = new Font(ff, 7.5f);
+
+        Font = _fBody;
+
+        RightToLeft = _isArabic ? RightToLeft.Yes : RightToLeft.No;
+        RightToLeftLayout = _isArabic;
+
+        // Setup Virtual Mode for DataGridView to prevent UI freeze and achieve O(1) performance
+        _grid.VirtualMode = true;
+        _grid.CellValueNeeded += Grid_CellValueNeeded;
+        _grid.CellValuePushed += Grid_CellValuePushed;
+        _grid.CellPainting += GridCell_Paint;
+        _grid.SelectionChanged += (_, _) => UpdateStatus();
+        _grid.RowValidated += GridRow_Validated;
+        _grid.DataError += (_, e) => e.Cancel = true;
+        _grid.ColumnHeaderMouseClick += GridHeader_Click;
 
         BuildSidebar();
         BuildContent();
@@ -68,6 +121,57 @@ public sealed class MainForm : Form
         ResumeLayout(false);
 
         Shown += (_, _) => RefreshAll();
+    }
+
+    private static string GetBilingualFontFamily()
+    {
+        try
+        {
+            using var font1 = new Font("Segoe UI Arabic", 9f);
+            if (font1.Name == "Segoe UI Arabic") return "Segoe UI Arabic";
+        }
+        catch { }
+        try
+        {
+            using var font2 = new Font("Tahoma", 9f);
+            if (font2.Name == "Tahoma") return "Tahoma";
+        }
+        catch { }
+        return "Segoe UI";
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _tagFont?.Dispose();
+            _emojiFontLogo?.Dispose();
+            _subtitleFontLogo?.Dispose();
+            _emojiFontKpi?.Dispose();
+
+            _fTitle?.Dispose();
+            _fBody?.Dispose();
+            _fSmall?.Dispose();
+            _fGrid?.Dispose();
+            _fBadge?.Dispose();
+            _fBtn?.Dispose();
+            _fKpiNum?.Dispose();
+            _fKpiLbl?.Dispose();
+            _fSidebar?.Dispose();
+            _fSidebarSm?.Dispose();
+
+            _gridSelectedBrush?.Dispose();
+            _gridEvenBrush?.Dispose();
+            _gridOddBrush?.Dispose();
+            _gridBorderBrush?.Dispose();
+            _blueBrush?.Dispose();
+            _sidebarBorderBrush?.Dispose();
+            _toastBgBrush?.Dispose();
+            _kpiShadowBrush?.Dispose();
+
+            _toastTimer?.Dispose();
+        }
+        base.Dispose(disposing);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -88,20 +192,20 @@ public sealed class MainForm : Form
             using var br = new LinearGradientBrush(p.ClientRectangle,
                 Color.FromArgb(30, 58, 138), Color.FromArgb(10, 17, 32), LinearGradientMode.Vertical);
             e.Graphics.FillRectangle(br, p.ClientRectangle);
-            e.Graphics.FillRectangle(new SolidBrush(Theme.Blue), 0, 0, 4, p.Height);
+            e.Graphics.FillRectangle(_blueBrush, 0, 0, 4, p.Height);
 
             int emojiX = _isArabic ? p.Width - 42 : 12;
             int textX  = _isArabic ? 12 : 52;
             var align  = _isArabic ? TextFormatFlags.Right : TextFormatFlags.Left;
 
-            TextRenderer.DrawText(e.Graphics, "📦", new Font("Segoe UI Emoji", 17f),
+            TextRenderer.DrawText(e.Graphics, "📦", _emojiFontLogo,
                 new Rectangle(emojiX, 0, 38, p.Height), Color.White,
                 TextFormatFlags.VerticalCenter | align);
-            TextRenderer.DrawText(e.Graphics, T("Asset Inventory", "جرد الممتلكات"), Theme.FTitle,
+            TextRenderer.DrawText(e.Graphics, T("Asset Inventory", "جرد الممتلكات"), _fTitle,
                 new Rectangle(textX, 4, p.Width - 64, p.Height - 18), Color.White,
                 TextFormatFlags.VerticalCenter | align);
             TextRenderer.DrawText(e.Graphics, T("KSAUHS Enterprise", "جامعة الملك سعود"),
-                new Font("Segoe UI", 7.5f), new Rectangle(textX, 0, p.Width - 64, p.Height + 10),
+                _subtitleFontLogo, new Rectangle(textX, 0, p.Width - 64, p.Height + 10),
                 Color.FromArgb(148, 163, 184),
                 TextFormatFlags.Bottom | align);
         };
@@ -138,7 +242,7 @@ public sealed class MainForm : Form
         footer.Paint += (s, e) =>
         {
             var p = (Panel)s!;
-            e.Graphics.FillRectangle(new SolidBrush(Theme.SidebarBorder), 0, 0, p.Width, 1);
+            e.Graphics.FillRectangle(_sidebarBorderBrush, 0, 0, p.Width, 1);
         };
         var btnLang = new Button
         {
@@ -146,7 +250,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             FlatStyle = FlatStyle.Flat,
             ForeColor = Color.FromArgb(148, 163, 184),
-            Font = Theme.FSidebarSm,
+            Font = _fSidebarSm,
             Cursor = Cursors.Hand
         };
         btnLang.FlatAppearance.BorderSize = 0;
@@ -165,7 +269,7 @@ public sealed class MainForm : Form
         f.Controls.Add(new Label
         {
             Text = title, ForeColor = Color.FromArgb(55, 65, 81),
-            Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+            Font = new Font(_fBody.FontFamily, 7.5f, FontStyle.Bold),
             AutoSize = false, Size = new Size(214, 26),
             TextAlign = _isArabic ? ContentAlignment.BottomRight : ContentAlignment.BottomLeft,
             Padding = _isArabic ? new Padding(0, 0, 16, 2) : new Padding(16, 0, 0, 2),
@@ -213,7 +317,7 @@ public sealed class MainForm : Form
             Text = text, FlatStyle = FlatStyle.Flat,
             BackColor = active ? Theme.SidebarActive : Theme.SidebarBg,
             ForeColor = active ? Color.White : Theme.SidebarText,
-            Font = Theme.FSidebar, Size = new Size(214, 38),
+            Font = _fSidebar, Size = new Size(214, 38),
             TextAlign = _isArabic ? ContentAlignment.MiddleRight : ContentAlignment.MiddleLeft,
             Padding = _isArabic ? new Padding(0, 0, 8, 0) : new Padding(8, 0, 0, 0),
             Cursor = Cursors.Hand
@@ -252,7 +356,7 @@ public sealed class MainForm : Form
         };
         var hLbl = new Label
         {
-            Dock = DockStyle.Fill, ForeColor = Color.White, Font = Theme.FTitle,
+            Dock = DockStyle.Fill, ForeColor = Color.White, Font = _fTitle,
             TextAlign = _isArabic ? ContentAlignment.MiddleRight : ContentAlignment.MiddleLeft,
             Padding = _isArabic ? new Padding(0, 0, 20, 0) : new Padding(20, 0, 0, 0),
             Text = T("Asset Inventory  ·  KSAUHS Enterprise", "نظام جرد الممتلكات  ·  جامعة الملك سعود")
@@ -319,8 +423,7 @@ public sealed class MainForm : Form
             g.SmoothingMode = SmoothingMode.AntiAlias;
 
             // Shadow
-            g.FillRectangle(new SolidBrush(Color.FromArgb(10, 0, 0, 0)),
-                new Rectangle(2, 2, p.Width - 1, p.Height - 1));
+            g.FillRectangle(_kpiShadowBrush, new Rectangle(2, 2, p.Width - 1, p.Height - 1));
             // Card face
             using var path = Pill(new Rectangle(0, 0, p.Width - 2, p.Height - 2), 6);
             g.FillPath(Brushes.White, path);
@@ -330,16 +433,22 @@ public sealed class MainForm : Form
             bool isRtl = _isArabic;
 
             // Accent bar placement
-            if (isRtl)
-                g.FillRectangle(new SolidBrush(accent), p.Width - 6, 0, 4, p.Height - 2);
-            else
-                g.FillRectangle(new SolidBrush(accent), 0, 0, 4, p.Height - 2);
+            using (var accentBrush = new SolidBrush(accent))
+            {
+                if (isRtl)
+                    g.FillRectangle(accentBrush, p.Width - 6, 0, 4, p.Height - 2);
+                else
+                    g.FillRectangle(accentBrush, 0, 0, 4, p.Height - 2);
+            }
 
             // Icon bg & Emoji
             int iconX = isRtl ? 14 : p.Width - 38;
-            g.FillEllipse(new SolidBrush(Color.FromArgb(18, accent.R, accent.G, accent.B)),
-                iconX, 10, 24, 24);
-            TextRenderer.DrawText(g, icon, new Font("Segoe UI Emoji", 10f),
+            using (var iconBgBrush = new SolidBrush(Color.FromArgb(18, accent.R, accent.G, accent.B)))
+            {
+                g.FillEllipse(iconBgBrush, iconX, 10, 24, 24);
+            }
+
+            TextRenderer.DrawText(g, icon, _emojiFontKpi,
                 new Rectangle(iconX, 10, 24, 24), Color.Empty,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
@@ -347,7 +456,7 @@ public sealed class MainForm : Form
             string val = GetKpiVal((string)p.Tag!);
             int textX = isRtl ? 38 : 12;
             var align = isRtl ? TextFormatFlags.Right : TextFormatFlags.Left;
-            TextRenderer.DrawText(g, val, Theme.FKpiNum,
+            TextRenderer.DrawText(g, val, _fKpiNum,
                 new Rectangle(textX, 6, p.Width - 50, 38), Theme.TextPrimary,
                 align | TextFormatFlags.VerticalCenter);
 
@@ -361,7 +470,7 @@ public sealed class MainForm : Form
                 "Disposed"    => T("Disposed", "المستبعدة"),
                 _             => (string)p.Tag!
             };
-            TextRenderer.DrawText(g, labelText, Theme.FKpiLbl,
+            TextRenderer.DrawText(g, labelText, _fKpiLbl,
                 new Rectangle(textX, 46, p.Width - 50, 20), Theme.TextSecondary,
                 align | TextFormatFlags.VerticalCenter);
 
@@ -371,12 +480,15 @@ public sealed class MainForm : Form
                 int cnt = GetKpiCount((string)p.Tag!);
                 double f = cnt * 1.0 / (_stats!.Total);
                 int   bw = (int)((p.Width - 24) * f);
-                g.FillRectangle(new SolidBrush(Color.FromArgb(25, accent.R, accent.G, accent.B)),
-                    12, 70, p.Width - 24, 4);
-                if (bw > 0)
+                using (var bgBarBrush = new SolidBrush(Color.FromArgb(25, accent.R, accent.G, accent.B)))
+                using (var fgBarBrush = new SolidBrush(accent))
                 {
-                    int barX = isRtl ? p.Width - 12 - bw : 12;
-                    g.FillRectangle(new SolidBrush(accent), barX, 70, bw, 4);
+                    g.FillRectangle(bgBarBrush, 12, 70, p.Width - 24, 4);
+                    if (bw > 0)
+                    {
+                        int barX = isRtl ? p.Width - 12 - bw : 12;
+                        g.FillRectangle(fgBarBrush, barX, 70, bw, 4);
+                    }
                 }
             }
         };
@@ -424,7 +536,7 @@ public sealed class MainForm : Form
             Padding = new Padding(16, 0, 16, 0)
         };
         tb.Paint += (s, e) =>
-            e.Graphics.FillRectangle(new SolidBrush(Theme.Border),
+            e.Graphics.FillRectangle(_gridBorderBrush,
                 0, ((Panel)s!).Height - 1, ((Panel)s!).Width, 1);
 
         var flow = new FlowLayoutPanel
@@ -449,12 +561,12 @@ public sealed class MainForm : Form
         var ico = new Label
         {
             Text = "🔍", Width = 28, Dock = _isArabic ? DockStyle.Right : DockStyle.Left,
-            TextAlign = ContentAlignment.MiddleCenter, Font = Theme.FSmall
+            TextAlign = ContentAlignment.MiddleCenter, Font = _fSmall
         };
         _search.BorderStyle     = BorderStyle.None;
         _search.Dock            = DockStyle.Fill;
         _search.BackColor       = Color.White;
-        _search.Font            = Theme.FBody;
+        _search.Font            = _fBody;
         _search.PlaceholderText = T("Search tag, description, location, notes…  (Ctrl+F)", "ابحث برقم الأصل، الوصف، الموقع… (Ctrl+F)");
         _search.TextChanged    += (_, _) => ApplyFilter();
         sBox.Controls.AddRange(new Control[] { _search, ico });
@@ -474,12 +586,12 @@ public sealed class MainForm : Form
         return tb;
     }
 
-    private static Button TBtn(string text, Color bg, Color fg, string tip)
+    private Button TBtn(string text, Color bg, Color fg, string tip)
     {
         var b = new Button
         {
             Text = text, BackColor = bg, ForeColor = fg, FlatStyle = FlatStyle.Flat,
-            Font = Theme.FBtn, Size = new Size(text.Length > 12 ? 140 : 108, 32),
+            Font = _fBtn, Size = new Size(text.Length > 12 ? 140 : 108, 32),
             Margin = new Padding(0, 0, 4, 0), Cursor = Cursors.Hand
         };
         b.FlatAppearance.BorderSize         = 0;
@@ -512,13 +624,13 @@ public sealed class MainForm : Form
         _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
         _grid.ColumnHeadersHeight         = 40;
         _grid.RowTemplate.Height          = 38;
-        _grid.Font                        = Theme.FGrid;
+        _grid.Font                        = _fGrid;
         _grid.DefaultCellStyle.SelectionBackColor = Theme.GridSelected;
         _grid.DefaultCellStyle.SelectionForeColor = Theme.GridSelectedFg;
         _grid.DefaultCellStyle.Padding            = new Padding(0);
         _grid.ColumnHeadersDefaultCellStyle.BackColor          = Theme.GridHeader;
         _grid.ColumnHeadersDefaultCellStyle.ForeColor          = Theme.GridHeaderFg;
-        _grid.ColumnHeadersDefaultCellStyle.Font               = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+        _grid.ColumnHeadersDefaultCellStyle.Font               = new Font(_fBody.FontFamily, 8.5f, FontStyle.Bold);
         _grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = Theme.GridHeader;
         _grid.ColumnHeadersDefaultCellStyle.Padding            = _isArabic ? new Padding(0, 0, 12, 0) : new Padding(12, 0, 0, 0);
         _grid.EnableHeadersVisualStyles   = false;
@@ -583,15 +695,8 @@ public sealed class MainForm : Form
 
         _grid.Columns.AddRange(colTag, colDesc, colLoc, colMinor, colStatus, colNote);
 
-        _grid.CellPainting       += GridCell_Paint;
-        _grid.SelectionChanged   += (_, _) => UpdateStatus();
-        _grid.CellDoubleClick    += (_, e) => { if (e.RowIndex >= 0 && e.ColumnIndex != 4) return; };
-        _grid.RowValidated       += GridRow_Validated;   // ← auto-save on row leave
-        _grid.DataError          += (_, e) => e.Cancel = true;
-        _grid.ColumnHeaderMouseClick += GridHeader_Click;
-
         // Context menu
-        var ctx = new ContextMenuStrip { Font = Theme.FBody, RightToLeft = _isArabic ? RightToLeft.Yes : RightToLeft.No };
+        var ctx = new ContextMenuStrip { Font = _fBody, RightToLeft = _isArabic ? RightToLeft.Yes : RightToLeft.No };
         ctx.Items.Add(T("✎  Open Full Edit", "✎  فتح للتعديل الكامل"), null, (_, _) => OnEdit());
         ctx.Items.Add(T("✕  Delete", "✕  حذف"),                null, (_, _) => OnDelete());
         ctx.Items.Add(new ToolStripSeparator());
@@ -616,7 +721,7 @@ public sealed class MainForm : Form
         };
         void SL(Label l, int w)
         {
-            l.ForeColor = Theme.TextMuted; l.Font = Theme.FSmall;
+            l.ForeColor = Theme.TextMuted; l.Font = _fSmall;
             l.AutoSize = false; l.Width = w; l.Height = 30;
             l.TextAlign = _isArabic ? ContentAlignment.MiddleRight : ContentAlignment.MiddleLeft;
             l.Padding = _isArabic ? new Padding(0, 0, 4, 0) : new Padding(4, 0, 0, 0);
@@ -630,7 +735,7 @@ public sealed class MainForm : Form
         {
             Text = T("Ctrl+N  Add  |  F2  Edit  |  Del  Delete  |  Ctrl+F  Search  |  F5  Refresh  |  Tab  Next Cell",
                      "Ctrl+N  إضافة  |  F2  تعديل  |  Del  حذف  |  Ctrl+F  بحث  |  F5  تحديث  |  Tab  الحقل التالي"),
-            ForeColor = Color.FromArgb(55, 65, 81), Font = Theme.FSmall,
+            ForeColor = Color.FromArgb(55, 65, 81), Font = _fSmall,
             Dock = _isArabic ? DockStyle.Left : DockStyle.Right, Width = 570, Height = 30,
             TextAlign = _isArabic ? ContentAlignment.MiddleLeft : ContentAlignment.MiddleRight
         };
@@ -641,7 +746,7 @@ public sealed class MainForm : Form
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  GRID PAINTING  (badge for Status column, alternating rows, etc.)
+    //  GRID PAINTING
     // ═══════════════════════════════════════════════════════════════════
     private void GridCell_Paint(object? sender, DataGridViewCellPaintingEventArgs e)
     {
@@ -660,16 +765,16 @@ public sealed class MainForm : Form
             return;
         }
 
-        Color rowBg = selected ? Theme.GridSelected
-                    : (e.RowIndex % 2 == 0 ? Theme.GridEven : Theme.GridOdd);
+        Brush rowBgBrush = selected ? _gridSelectedBrush
+                     : (e.RowIndex % 2 == 0 ? _gridEvenBrush : _gridOddBrush);
 
-        e.Graphics.FillRectangle(new SolidBrush(rowBg), e.CellBounds);
+        e.Graphics.FillRectangle(rowBgBrush, e.CellBounds);
         // Row separator
-        e.Graphics.FillRectangle(new SolidBrush(Theme.GridBorder),
+        e.Graphics.FillRectangle(_gridBorderBrush,
             e.CellBounds.X, e.CellBounds.Bottom - 1, e.CellBounds.Width, 1);
         // Blue accent bar on first col when selected
         if (e.ColumnIndex == 0 && selected)
-            e.Graphics.FillRectangle(new SolidBrush(Theme.Blue),
+            e.Graphics.FillRectangle(_blueBrush,
                 e.CellBounds.X, e.CellBounds.Y, 3, e.CellBounds.Height);
 
         if (isStatus && e.Value is string status && !string.IsNullOrEmpty(status))
@@ -679,7 +784,7 @@ public sealed class MainForm : Form
         else
         {
             bool bold = e.ColumnIndex == 0;
-            var  font = bold ? _tagFont : Theme.FGrid;   // cached — no GDI leak
+            var  font = bold ? _tagFont : _fGrid;
             var  fg   = selected ? Theme.GridSelectedFg : Theme.TextPrimary;
 
             TextRenderer.DrawText(e.Graphics, e.Value?.ToString() ?? "", font,
@@ -692,7 +797,7 @@ public sealed class MainForm : Form
         e.Handled = true;
     }
 
-    private static void DrawBadge(Graphics g, Rectangle cell, string status)
+    private void DrawBadge(Graphics g, Rectangle cell, string status)
     {
         var (_, bg, fg) = Theme.StatusStyle(status);
         var font        = Theme.FBadge;
@@ -703,11 +808,14 @@ public sealed class MainForm : Form
         int by          = cell.Y + (cell.Height - bh) / 2;
 
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        using var path = Pill(new Rectangle(bx, by, bw, bh), 10);
-        g.FillPath(new SolidBrush(bg), path);
-        TextRenderer.DrawText(g, status, font,
-            new Rectangle(bx, by, bw, bh), fg,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        using (var path = Pill(new Rectangle(bx, by, bw, bh), 10))
+        using (var badgeBgBrush = new SolidBrush(bg))
+        {
+            g.FillPath(badgeBgBrush, path);
+            TextRenderer.DrawText(g, status, font,
+                new Rectangle(bx, by, bw, bh), fg,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
     }
 
     private static GraphicsPath Pill(Rectangle r, int radius)
@@ -725,7 +833,8 @@ public sealed class MainForm : Form
     private void GridHeader_Click(object? sender, DataGridViewCellMouseEventArgs e)
     {
         if (e.ColumnIndex < 0) return;
-        var prop = typeof(Asset).GetProperty(_grid.Columns[e.ColumnIndex].DataPropertyName ?? "");
+        var propName = _grid.Columns[e.ColumnIndex].DataPropertyName ?? "";
+        var prop = typeof(Asset).GetProperty(propName);
         if (prop == null) return;
 
         bool asc = _grid.Columns[e.ColumnIndex].HeaderCell.SortGlyphDirection != SortOrder.Ascending;
@@ -741,34 +850,63 @@ public sealed class MainForm : Form
         BindGrid();
     }
 
+    // ── Grid Virtual Mode Events ──────────────────────────────────────────
+    private void Grid_CellValueNeeded(object? sender, DataGridViewCellValueEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.RowIndex >= _filtered.Count) return;
+        var asset = _filtered[e.RowIndex];
+        e.Value = e.ColumnIndex switch
+        {
+            0 => asset.TagNumber,
+            1 => asset.AssetDescription,
+            2 => asset.MajorLoc,
+            3 => asset.MinorLoc,
+            4 => asset.Status,
+            5 => asset.Note,
+            _ => null
+        };
+    }
+
+    private void Grid_CellValuePushed(object? sender, DataGridViewCellValueEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.RowIndex >= _filtered.Count) return;
+        var asset = _filtered[e.RowIndex];
+        var val = e.Value?.ToString() ?? "";
+        switch (e.ColumnIndex)
+        {
+            case 1:
+                asset.AssetDescription = val;
+                break;
+            case 2:
+                asset.MajorLoc = val;
+                break;
+            case 3:
+                asset.MinorLoc = val;
+                break;
+            case 4:
+                asset.Status = val.ToUpperInvariant() switch
+                {
+                    "VERIFIED" => "VERIFIED",
+                    "DISPOSED" => "DISPOSED",
+                    "TRANSFERRED" => "TRANSFERRED",
+                    _ => "PENDING"
+                };
+                break;
+            case 5:
+                asset.Note = val;
+                break;
+        }
+        asset.DataHash = Core.IntegrityGuard.CalculateRecordHash(asset.TagNumber, asset.MajorLoc);
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     //  AUTO-SAVE  (inline editing → save when leaving row)
     // ═══════════════════════════════════════════════════════════════════
-    private void GridRow_Validated(object? sender, DataGridViewCellEventArgs e)
+    private async void GridRow_Validated(object? sender, DataGridViewCellEventArgs e)
     {
         if (_suppressSave || e.RowIndex < 0 || e.RowIndex >= _filtered.Count) return;
 
-        // Read current values from the row's cells
-        var row   = _grid.Rows[e.RowIndex];
         var asset = _filtered[e.RowIndex];
-
-        string Get(string col) =>
-            col == "TagNumber"
-                ? Core.ScannerService.Sanitize(row.Cells[_grid.Columns[col]?.Index ?? -1]?.Value?.ToString()?.Trim() ?? "")
-                : row.Cells[_grid.Columns[col]?.Index ?? -1]?.Value?.ToString()?.Trim() ?? "";
-
-        asset.AssetDescription = Get("AssetDescription");
-        asset.MajorLoc         = Get("MajorLoc");
-        asset.MinorLoc         = Get("MinorLoc");
-        asset.Status           = Get("Status").ToUpperInvariant() switch
-        {
-            "VERIFIED"    => "VERIFIED",
-            "DISPOSED"    => "DISPOSED",
-            "TRANSFERRED" => "TRANSFERRED",
-            _             => "PENDING"
-        };
-        asset.Note     = Get("Note");
-        asset.DataHash = Core.IntegrityGuard.CalculateRecordHash(asset.TagNumber, asset.MajorLoc);
 
         if (!Core.AssetValidator.Validate(asset, out var err))
         {
@@ -778,10 +916,13 @@ public sealed class MainForm : Form
 
         try
         {
-            _repo.Save(asset);
-            // Refresh stats + KPI silently
-            _stats    = _repo.GetStats();
-            _locStats = _repo.GetLocationStats();
+            await Task.Run(() => _repo.Save(asset));
+            
+            // Refresh stats + KPI silently and asynchronously
+            var stats = await Task.Run(() => _repo.GetStats());
+            var locStats = await Task.Run(() => _repo.GetLocationStats());
+            _stats = stats;
+            _locStats = locStats;
             _kpiRow.Invalidate(true);
         }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
@@ -810,7 +951,7 @@ public sealed class MainForm : Form
         _toast.Visible   = false;
         _toastLabel.Dock      = DockStyle.Fill;
         _toastLabel.ForeColor = Color.White;
-        _toastLabel.Font      = Theme.FBody;
+        _toastLabel.Font      = _fBody;
         _toastLabel.TextAlign = ContentAlignment.MiddleLeft;
         _toastLabel.Padding   = new Padding(14, 0, 0, 0);
         _toast.Controls.Add(_toastLabel);
@@ -858,13 +999,18 @@ public sealed class MainForm : Form
     // ═══════════════════════════════════════════════════════════════════
     //  DATA
     // ═══════════════════════════════════════════════════════════════════
-    private void RefreshAll()
+    private async void RefreshAll()
     {
         try
         {
-            _all      = _repo.GetAll();
-            _stats    = _repo.GetStats();
-            _locStats = _repo.GetLocationStats();
+            var all = await Task.Run(() => _repo.GetAll());
+            var stats = await Task.Run(() => _repo.GetStats());
+            var locStats = await Task.Run(() => _repo.GetLocationStats());
+
+            _all = all;
+            _stats = stats;
+            _locStats = locStats;
+
             _kpiRow.Invalidate(true);
             ApplyFilter();
             if (_analyticsVisible) _analytics.Refresh(_stats, _locStats);
@@ -889,9 +1035,9 @@ public sealed class MainForm : Form
     private void BindGrid()
     {
         _suppressSave = true;
-        var bs = new BindingSource { DataSource = _filtered };
-        _grid.DataSource = bs;
-        if (_grid.Columns["DataHash"] is { } hc) hc.Visible = false;
+        _grid.DataSource = null; // Unbind data source
+        _grid.RowCount = _filtered.Count;
+        _grid.Invalidate();
         _suppressSave = false;
         UpdateStatus();
     }
@@ -907,6 +1053,7 @@ public sealed class MainForm : Form
     {
         _isArabic = !_isArabic;
         RightToLeft = _isArabic ? RightToLeft.Yes : RightToLeft.No;
+        RightToLeftLayout = _isArabic;
 
         // Clear and rebuild layout
         Controls.Clear();
@@ -928,40 +1075,53 @@ public sealed class MainForm : Form
     // ═══════════════════════════════════════════════════════════════════
     //  CRUD
     // ═══════════════════════════════════════════════════════════════════
-    private void OnAdd()
+    private async void OnAdd()
     {
         using var dlg = new AssetDialog();
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        try { _repo.Save(dlg.Result); RefreshAll(); Toast("✓  تمت الإضافة بنجاح", Theme.Green); }
+        try 
+        { 
+            await Task.Run(() => _repo.Save(dlg.Result)); 
+            RefreshAll(); 
+            Toast(T("✓  Added successfully", "✓  تمت الإضافة بنجاح"), Theme.Green); 
+        }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
     }
 
-    private void OnEdit()
+    private async void OnEdit()
     {
         var a = PickOne();
-        if (a == null) { Toast("⚠  اختر أصلاً أولاً", Theme.Yellow); return; }
+        if (a == null) { Toast(T("⚠  Select an asset first", "⚠  اختر أصلاً أولاً"), Theme.Yellow); return; }
         using var dlg = new AssetDialog(a);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        try { _repo.Save(dlg.Result); RefreshAll(); Toast("✓  تم حفظ التعديلات", Theme.Blue); }
+        try 
+        { 
+            await Task.Run(() => _repo.Save(dlg.Result)); 
+            RefreshAll(); 
+            Toast(T("✓  Changes saved", "✓  تم حفظ التعديلات"), Theme.Blue); 
+        }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
     }
 
-    private void OnDelete()
+    private async void OnDelete()
     {
         var tags = SelectedTags();
-        if (tags.Count == 0) { Toast("⚠  اختر أصولاً أولاً", Theme.Yellow); return; }
+        if (tags.Count == 0) { Toast(T("⚠  Select assets first", "⚠  اختر أصولاً أولاً"), Theme.Yellow); return; }
 
-        if (MessageBox.Show(
-                tags.Count == 1 ? $"حذف الأصل [{tags[0]}] نهائياً؟"
-                                : $"حذف {tags.Count} أصول نهائياً؟",
-                "تأكيد", MessageBoxButtons.YesNo, MessageBoxIcon.Warning)
-            != DialogResult.Yes) return;
+        string confirmMsg = tags.Count == 1 
+            ? T($"Delete asset [{tags[0]}] permanently?", $"حذف الأصل [{tags[0]}] نهائياً؟")
+            : T($"Delete {tags.Count} assets permanently?", $"حذف {tags.Count} أصول نهائياً؟");
+
+        if (MessageBox.Show(confirmMsg, T("Confirm", "تأكيد"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
 
         try
         {
-            foreach (var t in tags) _repo.Delete(t);
+            await Task.Run(() =>
+            {
+                foreach (var t in tags) _repo.Delete(t);
+            });
             RefreshAll();
-            Toast($"✓  تم حذف {tags.Count} أصل", Theme.Red);
+            Toast(T($"✓  Deleted {tags.Count} assets", $"✓  تم حذف {tags.Count} أصل"), Theme.Red);
         }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
     }
@@ -969,20 +1129,22 @@ public sealed class MainForm : Form
     private async void OnBulkStatus()
     {
         var tags = SelectedTags();
-        if (tags.Count == 0) { Toast("⚠  اختر أصولاً أولاً", Theme.Yellow); return; }
+        if (tags.Count == 0) { Toast(T("⚠  Select assets first", "⚠  اختر أصولاً أولاً"), Theme.Yellow); return; }
 
         using var f = new Form
         {
-            Text = "تغيير جماعي", Size = new Size(300, 158),
+            Text = T("Bulk Update", "تغيير جماعي"), Size = new Size(300, 158),
             StartPosition = FormStartPosition.CenterParent,
             FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false, MinimizeBox = false, BackColor = Color.White
+            MaximizeBox = false, MinimizeBox = false, BackColor = Color.White,
+            RightToLeft = RightToLeft,
+            RightToLeftLayout = RightToLeftLayout
         };
-        var lbl = new Label { Text = "الحالة الجديدة:", Dock = DockStyle.Top, Height = 30, Padding = new Padding(20, 8, 0, 0), ForeColor = Theme.TextSecondary, Font = Theme.FSmall };
+        var lbl = new Label { Text = T("New Status:", "الحالة الجديدة:"), Dock = DockStyle.Top, Height = 30, Padding = new Padding(20, 8, 20, 0), ForeColor = Theme.TextSecondary, Font = _fSmall };
         var cb  = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top, Height = 30, Margin = new Padding(20, 0, 20, 8) };
         cb.Items.AddRange(new object[] { "PENDING", "VERIFIED", "DISPOSED", "TRANSFERRED" });
         cb.SelectedIndex = 0;
-        var btn = new Button { Text = $"تطبيق على {tags.Count} أصول", Dock = DockStyle.Bottom, Height = 40, BackColor = Color.FromArgb(109, 40, 217), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, DialogResult = DialogResult.OK };
+        var btn = new Button { Text = T($"Apply to {tags.Count} assets", $"تطبيق على {tags.Count} أصول"), Dock = DockStyle.Bottom, Height = 40, BackColor = Color.FromArgb(109, 40, 217), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, DialogResult = DialogResult.OK };
         btn.FlatAppearance.BorderSize = 0;
         f.Controls.AddRange(new Control[] { btn, cb, lbl });
         f.AcceptButton = btn;
@@ -994,7 +1156,7 @@ public sealed class MainForm : Form
             string newStatus = cb.SelectedItem!.ToString()!;
             await Task.Run(() => _repo.BulkSetStatus(tags, newStatus));
             RefreshAll();
-            Toast($"✓  تم تغيير حالة {tags.Count} أصول → {newStatus}", Color.FromArgb(109, 40, 217));
+            Toast(T($"✓  Status changed for {tags.Count} assets → {newStatus}", $"✓  تم تغيير حالة {tags.Count} أصول → {newStatus}"), Color.FromArgb(109, 40, 217));
         }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
         finally { Cursor = Cursors.Default; }
@@ -1002,7 +1164,7 @@ public sealed class MainForm : Form
 
     private async void OnImport()
     {
-        using var ofd = new OpenFileDialog { Filter = "CSV Files|*.csv", Title = "استيراد CSV" };
+        using var ofd = new OpenFileDialog { Filter = "CSV Files|*.csv", Title = T("Import CSV", "استيراد CSV") };
         if (ofd.ShowDialog(this) != DialogResult.OK) return;
         Cursor = Cursors.WaitCursor;
         try
@@ -1010,7 +1172,7 @@ public sealed class MainForm : Form
             string filePath = ofd.FileName;
             await Task.Run(() => ImportService.ImportFromCsv(filePath, new DatabaseService()));
             RefreshAll();
-            Toast($"✓  استيراد: {System.IO.Path.GetFileName(filePath)}", Theme.Green);
+            Toast(T($"Imported: {System.IO.Path.GetFileName(filePath)}", $"✓  استيراد: {System.IO.Path.GetFileName(filePath)}"), Theme.Green);
         }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
         finally { Cursor = Cursors.Default; }
@@ -1026,7 +1188,7 @@ public sealed class MainForm : Form
             string filePath = sfd.FileName;
             var list = new List<Asset>(_filtered);
             await Task.Run(() => ExcelExportService.ExportToXlsx(list, filePath));
-            Toast($"✓  Excel: {System.IO.Path.GetFileName(filePath)}", Theme.Green);
+            Toast(T($"Exported Excel: {System.IO.Path.GetFileName(filePath)}", $"✓  Excel: {System.IO.Path.GetFileName(filePath)}"), Theme.Green);
         }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
         finally { Cursor = Cursors.Default; }
@@ -1042,7 +1204,7 @@ public sealed class MainForm : Form
             string filePath = sfd.FileName;
             var list = new List<Asset>(_filtered);
             await Task.Run(() => ExportService.ExportToCsv(list, filePath));
-            Toast($"✓  CSV: {System.IO.Path.GetFileName(filePath)}", Theme.Green);
+            Toast(T($"Exported CSV: {System.IO.Path.GetFileName(filePath)}", $"✓  CSV: {System.IO.Path.GetFileName(filePath)}"), Theme.Green);
         }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
         finally { Cursor = Cursors.Default; }

@@ -10,7 +10,6 @@ namespace AssetInventory.UI;
 
 /// <summary>
 /// لوحة تحليلات بصرية كاملة — رسم بياني دائري + أعمدة أفقية + إحصاءات.
-/// هذا ما لا يستطيع Excel فعله تلقائياً بدون Pivot Table.
 /// </summary>
 internal sealed class AnalyticsPanel : Panel
 {
@@ -18,11 +17,76 @@ internal sealed class AnalyticsPanel : Panel
     private Dictionary<string, int>? _locations;
     private int                      _totalAssets;
 
+    // Pre-allocated GDI+ resources to prevent memory leaks
+    private readonly Font _titleFont;
+    private readonly Font _smallBoldFont;
+    private readonly Font _summaryValFont;
+    private readonly Font _bodyFont;
+    private readonly Font _sidebarSmFont;
+
+    private readonly SolidBrush _shadowBrush = new(Color.FromArgb(12, 0, 0, 0));
+    private readonly SolidBrush _whiteBrush = new(Color.White);
+    private readonly SolidBrush _trackBrush = new(Color.FromArgb(241, 245, 249));
+    private readonly SolidBrush _emptyRingBrush = new(Color.FromArgb(229, 231, 235));
+    private readonly SolidBrush _summaryBgBrush = new(Color.FromArgb(15, 23, 42));
+    private readonly SolidBrush _separatorBrush = new(Color.FromArgb(241, 245, 249));
+    private readonly SolidBrush _dividerBrush = new(Color.FromArgb(40, 255, 255, 255));
+    private readonly Pen _borderPen = new(Theme.Border, 1f);
+    private readonly Pen _emptyRingPen = new(Theme.Border, 2f);
+
     public AnalyticsPanel()
     {
         DoubleBuffered = true;
         BackColor      = Theme.ContentBg;
         Dock           = DockStyle.Fill;
+
+        // Resolve bilingual-safe font family to prevent vertical clipping
+        string ff = GetBilingualFontFamily();
+        _titleFont = new Font(ff, 11f, FontStyle.Bold);
+        _smallBoldFont = new Font(ff, 8.5f, FontStyle.Bold);
+        _summaryValFont = new Font(ff, 12f, FontStyle.Bold);
+        _bodyFont = new Font(ff, 9.5f);
+        _sidebarSmFont = new Font(ff, 8f);
+    }
+
+    private static string GetBilingualFontFamily()
+    {
+        try
+        {
+            using var font1 = new Font("Segoe UI Arabic", 9f);
+            if (font1.Name == "Segoe UI Arabic") return "Segoe UI Arabic";
+        }
+        catch { }
+        try
+        {
+            using var font2 = new Font("Tahoma", 9f);
+            if (font2.Name == "Tahoma") return "Tahoma";
+        }
+        catch { }
+        return "Segoe UI";
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _titleFont.Dispose();
+            _smallBoldFont.Dispose();
+            _summaryValFont.Dispose();
+            _bodyFont.Dispose();
+            _sidebarSmFont.Dispose();
+
+            _shadowBrush.Dispose();
+            _whiteBrush.Dispose();
+            _trackBrush.Dispose();
+            _emptyRingBrush.Dispose();
+            _summaryBgBrush.Dispose();
+            _separatorBrush.Dispose();
+            _dividerBrush.Dispose();
+            _borderPen.Dispose();
+            _emptyRingPen.Dispose();
+        }
+        base.Dispose(disposing);
     }
 
     public void Refresh(AssetStats stats, Dictionary<string, int> locations)
@@ -66,16 +130,14 @@ internal sealed class AnalyticsPanel : Panel
     // ═══════════════════════════════════════════════════════════════
     //  CARD BACKGROUND
     // ═══════════════════════════════════════════════════════════════
-    private static void DrawCard(Graphics g, Rectangle r)
+    private void DrawCard(Graphics g, Rectangle r)
     {
         // Shadow
-        g.FillRectangle(new SolidBrush(Color.FromArgb(12, 0, 0, 0)),
-            new Rectangle(r.X + 2, r.Y + 2, r.Width, r.Height));
+        g.FillRectangle(_shadowBrush, new Rectangle(r.X + 2, r.Y + 2, r.Width, r.Height));
         // Card
         using var path = Rounded(r, 8);
-        g.FillPath(Brushes.White, path);
-        using var pen = new Pen(Theme.Border, 1f);
-        g.DrawPath(pen, path);
+        g.FillPath(_whiteBrush, path);
+        g.DrawPath(_borderPen, path);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -87,7 +149,7 @@ internal sealed class AnalyticsPanel : Panel
 
         // Title
         TextRenderer.DrawText(g, "Inventory Health",
-            new Font("Segoe UI", 11f, FontStyle.Bold),
+            _titleFont,
             new Rectangle(card.X + 16, card.Y + 14, card.Width - 32, 28),
             Theme.TextPrimary, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
 
@@ -116,38 +178,43 @@ internal sealed class AnalyticsPanel : Panel
 
                 // Outer arc (slightly inset for gap)
                 var segRect = new Rectangle(donutRect.X + 3, donutRect.Y + 3,
-                                            donutRect.Width - 6, donutRect.Height - 6);
-                g.FillPie(new SolidBrush(color), segRect, start + 1f, sweep - 2f);
+                                             donutRect.Width - 6, donutRect.Height - 6);
+                using (var brush = new SolidBrush(color))
+                {
+                    g.FillPie(brush, segRect, start + 1f, sweep - 2f);
+                }
                 start += sweep;
             }
 
             // Gray ring for zero-count segments
             if (stats.Total == 0)
-                g.FillEllipse(new SolidBrush(Color.FromArgb(229, 231, 235)), donutRect);
+                g.FillEllipse(_emptyRingBrush, donutRect);
 
             // Donut hole
             int holeSize  = (int)(donutSize * 0.6f);
             int holeOffset = (donutSize - holeSize) / 2;
             var holeRect  = new Rectangle(cx + holeOffset, cy + holeOffset, holeSize, holeSize);
-            g.FillEllipse(Brushes.White, holeRect);
+            g.FillEllipse(_whiteBrush, holeRect);
 
             // Center text
             double pct = stats.VerifiedPct;
-            var bigFont = new Font("Segoe UI", donutSize * 0.16f, FontStyle.Bold);
-            var smFont  = new Font("Segoe UI", donutSize * 0.07f);
-            TextRenderer.DrawText(g, $"{pct:0}%", bigFont, holeRect, Theme.TextPrimary,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            using (var bigFont = new Font(_titleFont.FontFamily, donutSize * 0.16f, FontStyle.Bold))
+            using (var smFont  = new Font(_titleFont.FontFamily, donutSize * 0.07f))
+            {
+                TextRenderer.DrawText(g, $"{pct:0}%", bigFont, holeRect, Theme.TextPrimary,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
-            var smRect = new Rectangle(holeRect.X, holeRect.Y + (int)(holeSize * 0.35f), holeSize, (int)(holeSize * 0.2f));
-            TextRenderer.DrawText(g, "Verified", smFont, smRect, Theme.TextSecondary,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                var smRect = new Rectangle(holeRect.X, holeRect.Y + (int)(holeSize * 0.35f), holeSize, (int)(holeSize * 0.2f));
+                TextRenderer.DrawText(g, "Verified", smFont, smRect, Theme.TextSecondary,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
         }
         else
         {
             // Empty state
-            g.DrawEllipse(new Pen(Theme.Border, 2f), donutRect);
+            g.DrawEllipse(_emptyRingPen, donutRect);
             TextRenderer.DrawText(g, "لا توجد بيانات",
-                Theme.FBody, donutRect, Theme.TextSecondary,
+                _bodyFont, donutRect, Theme.TextSecondary,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 
@@ -160,7 +227,7 @@ internal sealed class AnalyticsPanel : Panel
         DrawLegend(g, segments, stats.Total, new Rectangle(legendX, legendY, legW, legH));
     }
 
-    private static void DrawLegend(Graphics g,
+    private void DrawLegend(Graphics g,
         (string label, int count, Color color)[] items,
         int total,
         Rectangle area)
@@ -174,22 +241,25 @@ internal sealed class AnalyticsPanel : Panel
 
             // Color dot
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.FillEllipse(new SolidBrush(color), area.X, y + 6, 12, 12);
+            using (var brush = new SolidBrush(color))
+            {
+                g.FillEllipse(brush, area.X, y + 6, 12, 12);
+            }
             g.SmoothingMode = SmoothingMode.None;
 
             // Label
-            TextRenderer.DrawText(g, label, Theme.FSmall,
+            TextRenderer.DrawText(g, label, _smallBoldFont,
                 new Rectangle(area.X + 18, y, area.Width / 2 - 10, itemH),
                 Theme.TextPrimary, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
 
             // Count
-            TextRenderer.DrawText(g, count.ToString(), new Font("Segoe UI", 8.5f, FontStyle.Bold),
+            TextRenderer.DrawText(g, count.ToString(), _smallBoldFont,
                 new Rectangle(area.Right - 70, y, 35, itemH),
                 Theme.TextPrimary, TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
 
             // Percentage
             double pct = total > 0 ? count * 100.0 / total : 0;
-            TextRenderer.DrawText(g, $"{pct:0.0}%", Theme.FSmall,
+            TextRenderer.DrawText(g, $"{pct:0.0}%", _smallBoldFont,
                 new Rectangle(area.Right - 34, y, 34, itemH),
                 Theme.TextSecondary, TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
 
@@ -203,13 +273,13 @@ internal sealed class AnalyticsPanel : Panel
     private void DrawLocationBars(Graphics g, Rectangle card)
     {
         TextRenderer.DrawText(g, "Top Locations  —  asset distribution",
-            new Font("Segoe UI", 11f, FontStyle.Bold),
+            _titleFont,
             new Rectangle(card.X + 16, card.Y + 14, card.Width - 32, 28),
             Theme.TextPrimary, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
 
         if (_locations is null || _locations.Count == 0)
         {
-            TextRenderer.DrawText(g, "لا توجد بيانات موقع", Theme.FBody,
+            TextRenderer.DrawText(g, "لا توجد بيانات موقع", _bodyFont,
                 card, Theme.TextSecondary,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             return;
@@ -252,14 +322,13 @@ internal sealed class AnalyticsPanel : Panel
 
             // Label (truncate if too long)
             string displayLoc = loc.Length > 14 ? loc[..13] + "…" : loc;
-            TextRenderer.DrawText(g, displayLoc, Theme.FSmall,
+            TextRenderer.DrawText(g, displayLoc, _smallBoldFont,
                 new Rectangle(card.X + 16, rowY, labelW - 6, rowH),
                 Theme.TextSecondary,
                 TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
 
             // Background track
-            g.FillRectangle(new SolidBrush(Color.FromArgb(241, 245, 249)),
-                barAreaX, barY, barAreaW, barH);
+            g.FillRectangle(_trackBrush, barAreaX, barY, barAreaW, barH);
 
             // Bar fill with gradient
             if (barW > 0)
@@ -278,14 +347,13 @@ internal sealed class AnalyticsPanel : Panel
 
             // Count value
             TextRenderer.DrawText(g, count.ToString(),
-                new Font("Segoe UI", 8.5f, FontStyle.Bold),
+                _smallBoldFont,
                 new Rectangle(barAreaX + barAreaW + 4, rowY, 40, rowH),
                 Theme.TextPrimary, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
 
             // Row separator
             if (i < top.Count - 1)
-                g.FillRectangle(new SolidBrush(Color.FromArgb(241, 245, 249)),
-                    card.X + 8, rowY + rowH - 1, card.Width - 16, 1);
+                g.FillRectangle(_separatorBrush, card.X + 8, rowY + rowH - 1, card.Width - 16, 1);
         }
     }
 
@@ -310,9 +378,8 @@ internal sealed class AnalyticsPanel : Panel
             ("Top Location",     topLoc.Length > 16 ? topLoc[..15] + "…" : topLoc),
         };
 
-        using var cardBrush = new SolidBrush(Color.FromArgb(15, 23, 42));
-        using var path      = Rounded(area, 8);
-        g.FillPath(cardBrush, path);
+        using var path = Rounded(area, 8);
+        g.FillPath(_summaryBgBrush, path);
 
         int itemW = area.Width / stats.Length;
         for (int i = 0; i < stats.Length; i++)
@@ -321,18 +388,17 @@ internal sealed class AnalyticsPanel : Panel
             int x = area.X + i * itemW;
 
             TextRenderer.DrawText(g, value,
-                new Font("Segoe UI", 12f, FontStyle.Bold),
+                _summaryValFont,
                 new Rectangle(x, area.Y + 2, itemW, 26),
                 Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
-            TextRenderer.DrawText(g, label, Theme.FSidebarSm,
+            TextRenderer.DrawText(g, label, _sidebarSmFont,
                 new Rectangle(x, area.Y + 26, itemW, 18),
                 Color.FromArgb(148, 163, 184),
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
             if (i > 0)
-                g.FillRectangle(new SolidBrush(Color.FromArgb(40, 255, 255, 255)),
-                    x, area.Y + 8, 1, 30);
+                g.FillRectangle(_dividerBrush, x, area.Y + 8, 1, 30);
         }
     }
 
@@ -341,7 +407,7 @@ internal sealed class AnalyticsPanel : Panel
     // ═══════════════════════════════════════════════════════════════
     private void DrawEmpty(Graphics g)
     {
-        TextRenderer.DrawText(g, "لا توجد بيانات بعد — أضف أصولاً أولاً", Theme.FTitle,
+        TextRenderer.DrawText(g, "لا توجد بيانات بعد — أضف أصولاً أولاً", _titleFont,
             ClientRectangle, Theme.TextSecondary,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
     }

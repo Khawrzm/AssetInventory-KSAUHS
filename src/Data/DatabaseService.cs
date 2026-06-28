@@ -1,3 +1,5 @@
+using System;
+using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 using AssetInventory.Core;
 
@@ -16,8 +18,7 @@ namespace AssetInventory.Data
             return $"Data Source={dbPath};Password={password};";
         }
 
-        // إصلاح #5: تمرير الـ transaction للـ action حتى تستطيع كل command أن تنتمي للـ transaction
-        // سابقاً: commands داخل action لا تعرف عن الـ transaction فكانت تُنفَّذ خارجها
+        // Synchronous transaction execution
         public void ExecuteTransaction(Action<SqliteConnection, SqliteTransaction> action)
         {
             using var conn = new SqliteConnection(GetConnectionString());
@@ -31,6 +32,24 @@ namespace AssetInventory.Data
             catch
             {
                 trans.Rollback();
+                throw;
+            }
+        }
+
+        // Asynchronous transaction execution to eradicate UI blocking
+        public async Task ExecuteTransactionAsync(Func<SqliteConnection, SqliteTransaction, Task> action)
+        {
+            using var conn = new SqliteConnection(GetConnectionString());
+            await conn.OpenAsync();
+            using var trans = conn.BeginTransaction();
+            try
+            {
+                await action(conn, trans);
+                await trans.CommitAsync();
+            }
+            catch
+            {
+                await trans.RollbackAsync();
                 throw;
             }
         }
