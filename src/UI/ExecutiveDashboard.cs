@@ -36,17 +36,20 @@ public partial class ExecutiveDashboard : Form
         this.Size = new System.Drawing.Size(1200, 800);
         this.StartPosition = FormStartPosition.CenterScreen;
         this.BackColor = Theme.ContentBg;
-        InitializeWebView();
+        
+        // Register Load event for non-blocking asynchronous WebView2 initialization
+        this.Load += new EventHandler(ExecutiveDashboard_Load);
     }
 
-    private async void InitializeWebView()
+    private async void ExecutiveDashboard_Load(object? sender, EventArgs e)
     {
         _webView = new WebView2 { Dock = DockStyle.Fill };
         this.Controls.Add(_webView);
 
         try
         {
-            await _webView.EnsureCoreWebView2Async();
+            // Asynchronously initialize the WebView2 control core
+            await _webView.EnsureCoreWebView2Async(null);
             
             string uiFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "src", "UI");
             if (!Directory.Exists(uiFolder))
@@ -60,6 +63,7 @@ public partial class ExecutiveDashboard : Form
                 CoreWebView2HostResourceAccessKind.Allow
             );
 
+            // Establish the secure bridge host mapping
             _webView.CoreWebView2.AddHostObjectToScript("bridge", new FinancialBridge());
             _webView.Source = new Uri("https://sovereign.assets/univer_executive.html");
         }
