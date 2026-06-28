@@ -1,0 +1,61 @@
+name: Compile and Release Asset Inventory
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Setup MSVC Developer Command Prompt
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Compile C++ Sovereign Engine
+      shell: cmd
+      run: |
+        cl.exe /LD /O2 /std:c++20 /EHsc src/Engine/sovereign_engine.cpp /Fe:sovereign_engine.dll
+
+    - name: Publish C# WinForms App
+      run: |
+        dotnet publish AssetInventoryNode.csproj -c Release -r win-x64 --self-contained true -o publish
+
+    - name: Copy C++ DLL to Publish Directory
+      shell: cmd
+      run: |
+        copy sovereign_engine.dll publish\
+
+    - name: Compress Publish Directory
+      shell: powershell
+      run: |
+        Compress-Archive -Path publish\* -DestinationPath AssetInventory_v3.1_win-x64.zip -Force
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v3.1-beta
+        name: v3.1-beta — Asset Inventory KSAUHS
+        body: |
+          ### Enterprise Release v3.1-beta
+          * **UI Overhaul**: Flat dark mode design resembling Univer/Modern Excel.
+          * **High-Performance Math**: C++20 Sovereign calculation engine integration using `std::span`.
+          * **Zero-Freeze virtual loading**: O(1) database pagination caching.
+        draft: false
+        prerelease: false
+        files: AssetInventory_v3.1_win-x64.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
