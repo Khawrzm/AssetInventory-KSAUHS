@@ -635,6 +635,7 @@ public sealed partial class MainForm : Form
         var btnDelete = TBtn(T("✕  Delete", "✕  حذف"),         Theme.Red,                     Color.White,  "Del");
         var btnBulk   = TBtn(T("⚡  Bulk Status", "⚡  حالة جماعية"),   Color.FromArgb(109, 40, 217), Color.White,  "");
         var btnDeprec = TBtn(T("⚡ Calc Depreciation", "⚡ حساب الإهلاك"), Color.FromArgb(13, 164, 113), Color.White, "");
+        var btnPrint  = TBtn(T("🖨️ Print Tag", "🖨️ طباعة الملصق"),   Color.FromArgb(71, 85, 105),   Color.White,  "");
         var sep1      = Sep();
 
         // Search
@@ -662,7 +663,7 @@ public sealed partial class MainForm : Form
         var sep2       = Sep();
         var btnRefresh = TBtn(T("↺  Refresh", "↺  تحديث"), Color.FromArgb(49, 54, 63), Color.White, "F5");
 
-        flow.Controls.AddRange(new Control[] { btnAdd, btnEdit, btnDelete, btnBulk, btnDeprec, sep1, sBox, sep2, btnRefresh });
+        flow.Controls.AddRange(new Control[] { btnAdd, btnEdit, btnDelete, btnBulk, btnDeprec, btnPrint, sep1, sBox, sep2, btnRefresh });
         tb.Controls.Add(flow);
 
         btnAdd.Click    += (_, _) => OnAdd();
@@ -670,6 +671,7 @@ public sealed partial class MainForm : Form
         btnDelete.Click += (_, _) => OnDelete();
         btnBulk.Click   += (_, _) => OnBulkStatus();
         btnDeprec.Click += (_, _) => OnCalcDepreciation();
+        btnPrint.Click  += (_, _) => OnPrintTag();
         btnRefresh.Click += (_, _) => RefreshAll();
 
         return tb;
@@ -1348,6 +1350,23 @@ public sealed partial class MainForm : Form
         finally
         {
             Cursor = Cursors.Default;
+        }
+    }
+
+    private void OnPrintTag()
+    {
+        var a = PickOne();
+        if (a == null) { Toast(T("⚠  Select an asset first", "⚠  اختر أصلاً أولاً"), Theme.Yellow); return; }
+
+        try
+        {
+            var printService = new Services.GiaiPrintService();
+            printService.PrintAssetTag(a.TagNumber, a.AssetDescription, a.MajorLoc);
+            Toast(T($"✓ Tag printed: (8004){a.TagNumber}", $"✓ تم طباعة الملصق: (8004){a.TagNumber}"), Theme.Green);
+        }
+        catch (Exception ex)
+        {
+            Toast($"✕  {ex.Message}", Theme.Red);
         }
     }
 
