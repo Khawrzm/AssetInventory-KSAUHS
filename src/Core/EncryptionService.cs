@@ -26,21 +26,34 @@ namespace AssetInventory.Core
                     }
                     else
                     {
-                        // Generate a secure random password cryptographically
-                        string password = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
-                        byte[] passwordBytes = Encoding.UTF8.GetBytes(password);
-                        byte[] encryptedData = ProtectedData.Protect(passwordBytes, Entropy, DataProtectionScope.CurrentUser);
+                        // Generate a secure random password cryptographically using RandomNumberGenerator
+                        byte[] passwordBytes = new byte[32];
+                        using (var rng = RandomNumberGenerator.Create())
+                        {
+                            rng.GetBytes(passwordBytes);
+                        }
+                        string password = Convert.ToBase64String(passwordBytes);
+                        byte[] encryptedData = ProtectedData.Protect(Encoding.UTF8.GetBytes(password), Entropy, DataProtectionScope.CurrentUser);
                         File.WriteAllBytes(KeyFile, encryptedData);
                         return password;
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Safe cross-platform fallback for testing on Linux/Mac
+                if (Environment.GetEnvironmentVariable("ASSET_INVENTORY_DEV_MODE") == "1")
+                {
+                    return ""; // Safe fallback allowed in dev mode
+                }
+                throw new CryptographicException("DPAPI decryption failed. Database encryption cannot be initialized.", ex);
             }
-            
-            return ""; // Fallback to unencrypted database for local tests
+
+            if (Environment.GetEnvironmentVariable("ASSET_INVENTORY_DEV_MODE") == "1")
+            {
+                return ""; // Safe cross-platform fallback for testing on Linux/Mac
+            }
+
+            throw new PlatformNotSupportedException("DPAPI requires Windows. Database encryption cannot be initialized on this OS.");
         }
     }
 }

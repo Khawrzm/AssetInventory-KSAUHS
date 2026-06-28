@@ -172,7 +172,7 @@ internal sealed class AssetDialog : Form
     private void OnSave(object? s, EventArgs e)
     {
         _lblError.Text           = "";
-        Result.TagNumber         = _tbTag.Text.Trim();
+        Result.TagNumber         = ScannerService.Sanitize(_tbTag.Text.Trim());
         Result.AssetDescription  = _tbDesc.Text.Trim();
         Result.MajorLoc          = _tbLoc.Text.Trim();
         Result.MinorLoc          = _tbMinor.Text.Trim();

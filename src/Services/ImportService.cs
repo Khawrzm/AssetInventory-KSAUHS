@@ -70,6 +70,16 @@ namespace AssetInventory.Services
                     cmd.Parameters.AddWithValue("@loc", parts[2].Trim());
                     cmd.Parameters.AddWithValue("@stat", parts[3].Trim());
                     cmd.ExecuteNonQuery();
+
+                    var auditCmd = conn.CreateCommand();
+                    auditCmd.Transaction = trans;
+                    auditCmd.CommandText = @"
+                        INSERT INTO AuditLogs (AssetTag, FieldChanged, OldValue, NewValue, ChangedBy, DeviceName)
+                        VALUES (@tag, 'Import', 'None', 'CSV Import', @user, @device)";
+                    auditCmd.Parameters.AddWithValue("@tag", tag);
+                    auditCmd.Parameters.AddWithValue("@user", System.Environment.UserName);
+                    auditCmd.Parameters.AddWithValue("@device", System.Environment.MachineName);
+                    auditCmd.ExecuteNonQuery();
                 }
             });
         }

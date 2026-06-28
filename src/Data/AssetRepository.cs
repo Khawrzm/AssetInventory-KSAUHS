@@ -162,12 +162,6 @@ public class AssetRepository
         conn.Open();
         using var trans = conn.BeginTransaction();
 
-        // Enable WAL mode for database operations
-        using var walCmd = conn.CreateCommand();
-        walCmd.Transaction = trans;
-        walCmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
-        walCmd.ExecuteNonQuery();
-
         var old = GetByTag(asset.TagNumber, conn, trans);
 
         using var cmd   = conn.CreateCommand();
@@ -219,11 +213,6 @@ public class AssetRepository
         conn.Open();
         using var trans = conn.BeginTransaction();
 
-        using var walCmd = conn.CreateCommand();
-        walCmd.Transaction = trans;
-        walCmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
-        walCmd.ExecuteNonQuery();
-
         foreach (var tag in tags)
         {
             var old = GetByTag(tag, conn, trans);
@@ -249,11 +238,6 @@ public class AssetRepository
         using var conn  = new SqliteConnection(ConnStr);
         conn.Open();
         using var trans = conn.BeginTransaction();
-
-        using var walCmd = conn.CreateCommand();
-        walCmd.Transaction = trans;
-        walCmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
-        walCmd.ExecuteNonQuery();
 
         var old = GetByTag(tag, conn, trans);
 

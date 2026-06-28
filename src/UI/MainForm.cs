@@ -703,7 +703,9 @@ public sealed class MainForm : Form
         var asset = _filtered[e.RowIndex];
 
         string Get(string col) =>
-            row.Cells[_grid.Columns[col]?.Index ?? -1]?.Value?.ToString()?.Trim() ?? "";
+            col == "TagNumber"
+                ? Core.ScannerService.Sanitize(row.Cells[_grid.Columns[col]?.Index ?? -1]?.Value?.ToString()?.Trim() ?? "")
+                : row.Cells[_grid.Columns[col]?.Index ?? -1]?.Value?.ToString()?.Trim() ?? "";
 
         asset.AssetDescription = Get("AssetDescription");
         asset.MajorLoc         = Get("MajorLoc");
