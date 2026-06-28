@@ -19,6 +19,9 @@ public sealed class MainForm : Form
     private string?                  _statusFilter;
     private bool                     _suppressSave;   // blocks auto-save during grid rebind
 
+    // Cached GDI resources (never create fonts inside OnPaint)
+    private static readonly Font _tagFont = new("Segoe UI", 9f, FontStyle.Bold);
+
     // ── Controls ─────────────────────────────────────────────────────────
     private readonly DataGridView   _grid      = new();
     private readonly AnalyticsPanel _analytics = new();
@@ -475,6 +478,7 @@ public sealed class MainForm : Form
         // TAG: read-only (primary key)
         var colTag = new DataGridViewTextBoxColumn
         {
+            Name = "TagNumber",
             DataPropertyName = "TagNumber", HeaderText = "TAG NUMBER",
             MinimumWidth = 90, FillWeight = 80, ReadOnly = true,
             SortMode = DataGridViewColumnSortMode.Programmatic
@@ -483,6 +487,7 @@ public sealed class MainForm : Form
         // DESC: editable
         var colDesc = new DataGridViewTextBoxColumn
         {
+            Name = "AssetDescription",
             DataPropertyName = "AssetDescription", HeaderText = "DESCRIPTION",
             MinimumWidth = 180, FillWeight = 220,
             SortMode = DataGridViewColumnSortMode.Programmatic
@@ -491,6 +496,7 @@ public sealed class MainForm : Form
         // LOCATION: editable
         var colLoc = new DataGridViewTextBoxColumn
         {
+            Name = "MajorLoc",
             DataPropertyName = "MajorLoc", HeaderText = "LOCATION",
             MinimumWidth = 100, FillWeight = 100,
             SortMode = DataGridViewColumnSortMode.Programmatic
@@ -499,6 +505,7 @@ public sealed class MainForm : Form
         // SUB-LOC: editable
         var colMinor = new DataGridViewTextBoxColumn
         {
+            Name = "MinorLoc",
             DataPropertyName = "MinorLoc", HeaderText = "SUB-LOC",
             MinimumWidth = 80, FillWeight = 80,
             SortMode = DataGridViewColumnSortMode.Programmatic
@@ -507,17 +514,19 @@ public sealed class MainForm : Form
         // STATUS: inline ComboBox
         var colStatus = new DataGridViewComboBoxColumn
         {
+            Name = "Status",
             DataPropertyName = "Status", HeaderText = "STATUS",
             MinimumWidth = 110, FillWeight = 100,
             DataSource   = new[] { "PENDING", "VERIFIED", "DISPOSED", "TRANSFERRED" },
             FlatStyle    = FlatStyle.Flat,
             SortMode     = DataGridViewColumnSortMode.Programmatic,
-            DisplayStyle = DataGridViewComboBoxDisplayStyle.Nothing  // ← we paint the badge ourselves
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.Nothing
         };
 
         // NOTES: editable
         var colNote = new DataGridViewTextBoxColumn
         {
+            Name = "Note",
             DataPropertyName = "Note", HeaderText = "NOTES",
             MinimumWidth = 120, FillWeight = 160,
             SortMode = DataGridViewColumnSortMode.Programmatic
@@ -619,7 +628,7 @@ public sealed class MainForm : Form
         else
         {
             bool bold = e.ColumnIndex == 0;
-            var  font = bold ? new Font("Segoe UI", 9f, FontStyle.Bold) : Theme.FGrid;
+            var  font = bold ? _tagFont : Theme.FGrid;   // cached — no GDI leak
             var  fg   = selected ? Theme.GridSelectedFg : Theme.TextPrimary;
 
             TextRenderer.DrawText(e.Graphics, e.Value?.ToString() ?? "", font,
