@@ -52,7 +52,16 @@ public static class ExcelExportService
             void WriteCell(int col, object val, bool centered = false)
             {
                 var cell = ws.Cell(row, col);
-                cell.Value = val?.ToString() ?? "";
+                string strVal = val?.ToString() ?? "";
+
+                // Prevent formula injection in Excel by escaping leading triggers
+                char[] triggerChars = { '=', '+', '-', '@', '\t', '\r' };
+                if (strVal.Length > 0 && System.Array.Exists(triggerChars, c => strVal[0] == c))
+                {
+                    strVal = "'" + strVal;
+                }
+
+                cell.Value = strVal;
                 cell.Style.Fill.BackgroundColor = rowBg;
                 cell.Style.Font.FontColor = XLColor.FromArgb(15, 23, 42);
                 cell.Style.Border.BottomBorder = XLBorderStyleValues.Hair;

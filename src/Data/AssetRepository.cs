@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Microsoft.Data.Sqlite;
 using AssetInventory.Core;
@@ -14,6 +15,11 @@ public class AssetRepository
         using var conn = new SqliteConnection(ConnStr);
         conn.Open();
         using var cmd = conn.CreateCommand();
+        
+        // Enable WAL mode for better concurrency and corruption protection
+        cmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
+        cmd.ExecuteNonQuery();
+
         cmd.CommandText = @"
             CREATE TABLE IF NOT EXISTS Assets (
                 Tag       TEXT PRIMARY KEY,
@@ -25,7 +31,17 @@ public class AssetRepository
                 Note      TEXT NOT NULL DEFAULT '',
                 CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
                 UpdatedAt TEXT NOT NULL DEFAULT (datetime('now'))
-            )";
+            );
+            CREATE TABLE IF NOT EXISTS AuditLogs (
+                Id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                AssetTag     TEXT NOT NULL,
+                FieldChanged TEXT NOT NULL,
+                OldValue     TEXT,
+                NewValue     TEXT,
+                ChangedBy    TEXT NOT NULL,
+                DeviceName   TEXT NOT NULL,
+                Timestamp    TEXT NOT NULL DEFAULT (datetime('now'))
+            );";
         cmd.ExecuteNonQuery();
 
         // Migrate older DBs that are missing newer columns
@@ -101,11 +117,47 @@ public class AssetRepository
         return dict;
     }
 
+    private Asset? GetByTag(string tag, SqliteConnection conn, SqliteTransaction trans)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = trans;
+        cmd.CommandText = "SELECT Tag,Desc,Loc,Minor,Status,Hash,Note FROM Assets WHERE Tag=@tag";
+        cmd.Parameters.AddWithValue("@tag", tag);
+        using var r = cmd.ExecuteReader();
+        if (r.Read()) return Map(r);
+        return null;
+    }
+
+    private void WriteAuditLog(SqliteConnection conn, SqliteTransaction trans, string assetTag, string fieldChanged, string? oldValue, string? newValue)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = trans;
+        cmd.CommandText = @"
+            INSERT INTO AuditLogs (AssetTag, FieldChanged, OldValue, NewValue, ChangedBy, DeviceName)
+            VALUES (@tag, @field, @old, @new, @user, @device)";
+        cmd.Parameters.AddWithValue("@tag", assetTag);
+        cmd.Parameters.AddWithValue("@field", fieldChanged);
+        cmd.Parameters.AddWithValue("@old", (object?)oldValue ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@new", (object?)newValue ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@user", Environment.UserName);
+        cmd.Parameters.AddWithValue("@device", Environment.MachineName);
+        cmd.ExecuteNonQuery();
+    }
+
     public void Save(Asset asset)
     {
         using var conn  = new SqliteConnection(ConnStr);
         conn.Open();
         using var trans = conn.BeginTransaction();
+
+        // Enable WAL mode for database operations
+        using var walCmd = conn.CreateCommand();
+        walCmd.Transaction = trans;
+        walCmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
+        walCmd.ExecuteNonQuery();
+
+        var old = GetByTag(asset.TagNumber, conn, trans);
+
         using var cmd   = conn.CreateCommand();
         cmd.Transaction = trans;
         cmd.CommandText = @"
@@ -127,6 +179,25 @@ public class AssetRepository
         cmd.Parameters.AddWithValue("@hash",  asset.DataHash);
         cmd.Parameters.AddWithValue("@note",  asset.Note);
         cmd.ExecuteNonQuery();
+
+        if (old == null)
+        {
+            WriteAuditLog(conn, trans, asset.TagNumber, "Create", null, "Asset Created");
+        }
+        else
+        {
+            if (old.AssetDescription != asset.AssetDescription)
+                WriteAuditLog(conn, trans, asset.TagNumber, "AssetDescription", old.AssetDescription, asset.AssetDescription);
+            if (old.MajorLoc != asset.MajorLoc)
+                WriteAuditLog(conn, trans, asset.TagNumber, "MajorLoc", old.MajorLoc, asset.MajorLoc);
+            if (old.MinorLoc != asset.MinorLoc)
+                WriteAuditLog(conn, trans, asset.TagNumber, "MinorLoc", old.MinorLoc, asset.MinorLoc);
+            if (old.Status != asset.Status)
+                WriteAuditLog(conn, trans, asset.TagNumber, "Status", old.Status, asset.Status);
+            if (old.Note != asset.Note)
+                WriteAuditLog(conn, trans, asset.TagNumber, "Note", old.Note, asset.Note);
+        }
+
         trans.Commit();
     }
 
@@ -135,14 +206,28 @@ public class AssetRepository
         using var conn  = new SqliteConnection(ConnStr);
         conn.Open();
         using var trans = conn.BeginTransaction();
+
+        using var walCmd = conn.CreateCommand();
+        walCmd.Transaction = trans;
+        walCmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
+        walCmd.ExecuteNonQuery();
+
         foreach (var tag in tags)
         {
+            var old = GetByTag(tag, conn, trans);
+            string? oldStatus = old?.Status;
+
             using var cmd = conn.CreateCommand();
             cmd.Transaction = trans;
             cmd.CommandText = "UPDATE Assets SET Status=@s, UpdatedAt=datetime('now') WHERE Tag=@t";
             cmd.Parameters.AddWithValue("@s", newStatus);
             cmd.Parameters.AddWithValue("@t", tag);
             cmd.ExecuteNonQuery();
+
+            if (oldStatus != newStatus)
+            {
+                WriteAuditLog(conn, trans, tag, "Status", oldStatus, newStatus);
+            }
         }
         trans.Commit();
     }
@@ -152,11 +237,25 @@ public class AssetRepository
         using var conn  = new SqliteConnection(ConnStr);
         conn.Open();
         using var trans = conn.BeginTransaction();
+
+        using var walCmd = conn.CreateCommand();
+        walCmd.Transaction = trans;
+        walCmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
+        walCmd.ExecuteNonQuery();
+
+        var old = GetByTag(tag, conn, trans);
+
         using var cmd   = conn.CreateCommand();
         cmd.Transaction = trans;
         cmd.CommandText = "DELETE FROM Assets WHERE Tag=@tag";
         cmd.Parameters.AddWithValue("@tag", tag);
         cmd.ExecuteNonQuery();
+
+        if (old != null)
+        {
+            WriteAuditLog(conn, trans, tag, "Delete", old.Status, "Asset Deleted");
+        }
+
         trans.Commit();
     }
 

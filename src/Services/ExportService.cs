@@ -11,6 +11,15 @@ namespace AssetInventory.Services
         // لمنع CSV Injection وضمان صحة الملف عند فتحه في Excel أو أي برنامج
         private static string EscapeCsvField(string value)
         {
+            if (string.IsNullOrEmpty(value)) return "";
+
+            // Prevent CSV Injection by prepending a single quote to potential formula triggers
+            char[] triggerChars = { '=', '+', '-', '@', '\t', '\r' };
+            if (value.Length > 0 && System.Array.Exists(triggerChars, c => value[0] == c))
+            {
+                value = "'" + value;
+            }
+
             if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
             {
                 return $"\"{value.Replace("\"", "\"\"")}\"";
