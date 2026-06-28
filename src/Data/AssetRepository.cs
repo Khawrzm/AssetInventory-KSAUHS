@@ -68,6 +68,65 @@ public class AssetRepository
         }
     }
 
+    public int GetFilteredCount(string? statusFilter, string? searchQuery)
+    {
+        using var conn = new SqliteConnection(ConnStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        var sql = "SELECT COUNT(*) FROM Assets WHERE 1=1";
+        if (!string.IsNullOrEmpty(statusFilter))
+        {
+            sql += " AND Status=@status";
+            cmd.Parameters.AddWithValue("@status", statusFilter);
+        }
+        if (!string.IsNullOrEmpty(searchQuery))
+        {
+            sql += " AND (Tag LIKE @q OR Desc LIKE @q OR Loc LIKE @q OR Note LIKE @q)";
+            cmd.Parameters.AddWithValue("@q", $"%{searchQuery}%");
+        }
+        cmd.CommandText = sql;
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    public List<Asset> GetFilteredPage(string? statusFilter, string? searchQuery, int offset, int limit, string sortCol = "Tag", bool sortAsc = true)
+    {
+        var list = new List<Asset>();
+        using var conn = new SqliteConnection(ConnStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        var sql = "SELECT Tag,Desc,Loc,Minor,Status,Hash,Note FROM Assets WHERE 1=1";
+        if (!string.IsNullOrEmpty(statusFilter))
+        {
+            sql += " AND Status=@status";
+            cmd.Parameters.AddWithValue("@status", statusFilter);
+        }
+        if (!string.IsNullOrEmpty(searchQuery))
+        {
+            sql += " AND (Tag LIKE @q OR Desc LIKE @q OR Loc LIKE @q OR Note LIKE @q)";
+            cmd.Parameters.AddWithValue("@q", $"%{searchQuery}%");
+        }
+        
+        string orderCol = sortCol switch
+        {
+            "TagNumber" => "Tag",
+            "AssetDescription" => "Desc",
+            "MajorLoc" => "Loc",
+            "MinorLoc" => "Minor",
+            "Status" => "Status",
+            "Note" => "Note",
+            _ => "Tag"
+        };
+        
+        sql += $" ORDER BY [{orderCol}] {(sortAsc ? "ASC" : "DESC")} LIMIT @limit OFFSET @offset";
+        cmd.Parameters.AddWithValue("@limit", limit);
+        cmd.Parameters.AddWithValue("@offset", offset);
+        
+        cmd.CommandText = sql;
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(Map(r));
+        return list;
+    }
+
     // ── Synchronous Methods ──────────────────────────────────────────────────
 
     public List<Asset> GetAll()
@@ -79,6 +138,18 @@ public class AssetRepository
         cmd.CommandText = "SELECT Tag,Desc,Loc,Minor,Status,Hash,Note FROM Assets ORDER BY Tag";
         using var r = cmd.ExecuteReader();
         while (r.Read()) list.Add(Map(r));
+        return list;
+    }
+
+    public List<string> GetAllStatuses()
+    {
+        var list = new List<string>();
+        using var conn = new SqliteConnection(ConnStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT Status FROM Assets";
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(r.IsDBNull(0) ? "PENDING" : r.GetString(0));
         return list;
     }
 

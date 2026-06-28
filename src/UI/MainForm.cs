@@ -5,19 +5,21 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
+using System.Runtime.InteropServices;
 using AssetInventory.Data;
 using AssetInventory.Models;
 using AssetInventory.Services;
 
 namespace AssetInventory.UI;
 
-public sealed class MainForm : Form
+public sealed partial class MainForm : Form
 {
     // ── Data ─────────────────────────────────────────────────────────────
     private readonly AssetRepository _repo     = new();
-    private List<Asset>              _all      = new();
-    private List<Asset>              _filtered = new();
+    private readonly AssetPageCache  _cache;
     private string?                  _statusFilter;
+    private string                   _sortCol = "TagNumber";
+    private bool                     _sortAsc = true;
     private bool                     _suppressSave;   // blocks auto-save during grid rebind
     private bool                     _isArabic = false;
     private string T(string english, string arabic) => _isArabic ? arabic : english;
@@ -74,6 +76,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
+        _cache = new AssetPageCache(_repo, 100);
         SuspendLayout();
         Text          = "Asset Inventory — KSAUHS";
         Size          = new Size(1300, 780);
@@ -915,27 +918,24 @@ public sealed class MainForm : Form
     {
         if (e.ColumnIndex < 0) return;
         var propName = _grid.Columns[e.ColumnIndex].DataPropertyName ?? "";
-        var prop = typeof(Asset).GetProperty(propName);
-        if (prop == null) return;
 
         bool asc = _grid.Columns[e.ColumnIndex].HeaderCell.SortGlyphDirection != SortOrder.Ascending;
-        _filtered = asc
-            ? _filtered.OrderBy(a => prop.GetValue(a)?.ToString() ?? "").ToList()
-            : _filtered.OrderByDescending(a => prop.GetValue(a)?.ToString() ?? "").ToList();
+        _sortCol = propName;
+        _sortAsc = asc;
 
         foreach (DataGridViewColumn c in _grid.Columns)
             c.HeaderCell.SortGlyphDirection = SortOrder.None;
         _grid.Columns[e.ColumnIndex].HeaderCell.SortGlyphDirection =
             asc ? SortOrder.Ascending : SortOrder.Descending;
 
-        BindGrid();
+        ApplyFilter();
     }
 
     // ── Grid Virtual Mode Events ──────────────────────────────────────────
     private void Grid_CellValueNeeded(object? sender, DataGridViewCellValueEventArgs e)
     {
-        if (e.RowIndex < 0 || e.RowIndex >= _filtered.Count) return;
-        var asset = _filtered[e.RowIndex];
+        if (e.RowIndex < 0 || e.RowIndex >= _cache.GetTotalCount()) return;
+        var asset = _cache.GetAssetAt(e.RowIndex);
         e.Value = e.ColumnIndex switch
         {
             0 => asset.TagNumber,
@@ -950,8 +950,8 @@ public sealed class MainForm : Form
 
     private void Grid_CellValuePushed(object? sender, DataGridViewCellValueEventArgs e)
     {
-        if (e.RowIndex < 0 || e.RowIndex >= _filtered.Count) return;
-        var asset = _filtered[e.RowIndex];
+        if (e.RowIndex < 0 || e.RowIndex >= _cache.GetTotalCount()) return;
+        var asset = _cache.GetAssetAt(e.RowIndex);
         var val = e.Value?.ToString() ?? "";
         switch (e.ColumnIndex)
         {
@@ -978,6 +978,7 @@ public sealed class MainForm : Form
                 break;
         }
         asset.DataHash = Core.IntegrityGuard.CalculateRecordHash(asset.TagNumber, asset.MajorLoc);
+        _cache.UpdateAssetInCache(e.RowIndex, asset);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -985,9 +986,9 @@ public sealed class MainForm : Form
     // ═══════════════════════════════════════════════════════════════════
     private async void GridRow_Validated(object? sender, DataGridViewCellEventArgs e)
     {
-        if (_suppressSave || e.RowIndex < 0 || e.RowIndex >= _filtered.Count) return;
+        if (_suppressSave || e.RowIndex < 0 || e.RowIndex >= _cache.GetTotalCount()) return;
 
-        var asset = _filtered[e.RowIndex];
+        var asset = _cache.GetAssetAt(e.RowIndex);
 
         if (!Core.AssetValidator.Validate(asset, out var err))
         {
@@ -999,8 +1000,8 @@ public sealed class MainForm : Form
         {
             await Task.Run(() => _repo.Save(asset));
             
-            // Refresh stats + KPI silently and asynchronously
-            var stats = await Task.Run(() => _repo.GetStats());
+            // Refresh stats + KPI silently and asynchronously using C++ engine
+            var stats = await ComputeStatsWithNativeEngineAsync();
             var locStats = await Task.Run(() => _repo.GetLocationStats());
             _stats = stats;
             _locStats = locStats;
@@ -1084,15 +1085,14 @@ public sealed class MainForm : Form
     {
         try
         {
-            var all = await Task.Run(() => _repo.GetAll());
-            var stats = await Task.Run(() => _repo.GetStats());
+            var stats = await ComputeStatsWithNativeEngineAsync();
             var locStats = await Task.Run(() => _repo.GetLocationStats());
 
-            _all = all;
             _stats = stats;
             _locStats = locStats;
 
             _kpiRow.Invalidate(true);
+            _cache.Invalidate();
             ApplyFilter();
             if (_analyticsVisible) _analytics.Refresh(_stats, _locStats);
         }
@@ -1101,15 +1101,8 @@ public sealed class MainForm : Form
 
     private void ApplyFilter()
     {
-        var q = _search.Text.Trim().ToLowerInvariant();
-        _filtered = _all
-            .Where(a => string.IsNullOrEmpty(_statusFilter) || a.Status == _statusFilter)
-            .Where(a => string.IsNullOrEmpty(q) ||
-                        a.TagNumber.ToLowerInvariant().Contains(q)        ||
-                        a.AssetDescription.ToLowerInvariant().Contains(q) ||
-                        a.MajorLoc.ToLowerInvariant().Contains(q)         ||
-                        a.Note.ToLowerInvariant().Contains(q))
-            .ToList();
+        var q = _search.Text.Trim();
+        _cache.UpdateFilter(_statusFilter, q, _sortCol, _sortAsc);
         BindGrid();
     }
 
@@ -1117,7 +1110,7 @@ public sealed class MainForm : Form
     {
         _suppressSave = true;
         _grid.DataSource = null; // Unbind data source
-        _grid.RowCount = _filtered.Count;
+        _grid.RowCount = _cache.GetTotalCount();
         _grid.Invalidate();
         _suppressSave = false;
         UpdateStatus();
@@ -1125,9 +1118,53 @@ public sealed class MainForm : Form
 
     private void UpdateStatus()
     {
-        _lblTotal.Text = T($"Total: {_all.Count} assets", $"الإجمالي: {_all.Count} أصول");
-        _lblShow.Text  = T($"Showing: {_filtered.Count}", $"المعروض: {_filtered.Count}");
+        int totalCount = _repo.GetFilteredCount(null, "");
+        int filteredCount = _cache.GetTotalCount();
+        _lblTotal.Text = T($"Total: {totalCount} assets", $"الإجمالي: {totalCount} أصول");
+        _lblShow.Text  = T($"Showing: {filteredCount}", $"المعروض: {filteredCount}");
         _lblSel.Text   = T($"Selected: {_grid.SelectedRows.Count}", $"المحدد: {_grid.SelectedRows.Count}");
+    }
+
+    [LibraryImport("sovereign_engine.dll", EntryPoint = "CalculateStats")]
+    private static unsafe partial void CalculateStatsInternal(
+        int* statusArray,
+        int size,
+        out int outTotal,
+        out int outVerified,
+        out int outPending,
+        out int outDisposed,
+        out int outTransferred
+    );
+
+    private async Task<AssetStats> ComputeStatsWithNativeEngineAsync()
+    {
+        return await Task.Run(() =>
+        {
+            var statuses = _repo.GetAllStatuses();
+            int[] nativeStatuses = new int[statuses.Count];
+            for (int i = 0; i < statuses.Count; i++)
+            {
+                nativeStatuses[i] = Core.EngineInterop.MapStatusToNative(statuses[i]);
+            }
+
+            unsafe
+            {
+                fixed (int* ptr = nativeStatuses)
+                {
+                    CalculateStatsInternal(
+                        ptr,
+                        nativeStatuses.Length,
+                        out int total,
+                        out int verified,
+                        out int pending,
+                        out int disposed,
+                        out int transferred
+                    );
+
+                    return new AssetStats(total, verified, pending, disposed, transferred);
+                }
+            }
+        });
     }
 
     private void ToggleLanguage()
@@ -1273,7 +1310,16 @@ public sealed class MainForm : Form
         try
         {
             string filePath = sfd.FileName;
-            var list = new List<Asset>(_filtered);
+            string q = _search.Text.Trim();
+            string? statusFilter = _statusFilter;
+            string sortCol = _sortCol;
+            bool sortAsc = _sortAsc;
+
+            var list = await Task.Run(() => {
+                int count = _repo.GetFilteredCount(statusFilter, q);
+                return _repo.GetFilteredPage(statusFilter, q, 0, count, sortCol, sortAsc);
+            });
+
             await Task.Run(() => ExcelExportService.ExportToXlsx(list, filePath));
             Toast(T($"Exported Excel: {System.IO.Path.GetFileName(filePath)}", $"✓  Excel: {System.IO.Path.GetFileName(filePath)}"), Theme.Green);
         }
@@ -1289,7 +1335,16 @@ public sealed class MainForm : Form
         try
         {
             string filePath = sfd.FileName;
-            var list = new List<Asset>(_filtered);
+            string q = _search.Text.Trim();
+            string? statusFilter = _statusFilter;
+            string sortCol = _sortCol;
+            bool sortAsc = _sortAsc;
+
+            var list = await Task.Run(() => {
+                int count = _repo.GetFilteredCount(statusFilter, q);
+                return _repo.GetFilteredPage(statusFilter, q, 0, count, sortCol, sortAsc);
+            });
+
             await Task.Run(() => ExportService.ExportToCsv(list, filePath));
             Toast(T($"Exported CSV: {System.IO.Path.GetFileName(filePath)}", $"✓  CSV: {System.IO.Path.GetFileName(filePath)}"), Theme.Green);
         }
@@ -1304,11 +1359,98 @@ public sealed class MainForm : Form
     {
         if (_grid.SelectedRows.Count == 0) return null;
         int i = _grid.SelectedRows[0].Index;
-        return i >= 0 && i < _filtered.Count ? _filtered[i] : null;
+        return i >= 0 && i < _cache.GetTotalCount() ? _cache.GetAssetAt(i) : null;
     }
 
     private List<string> SelectedTags() =>
         _grid.SelectedRows.Cast<DataGridViewRow>()
-            .Select(r => r.Index).Where(i => i >= 0 && i < _filtered.Count)
-            .Select(i => _filtered[i].TagNumber).ToList();
+            .Select(r => r.Index).Where(i => i >= 0 && i < _cache.GetTotalCount())
+            .Select(i => _cache.GetAssetAt(i).TagNumber).ToList();
+
+    // ── AssetPageCache: memory-efficient pagination cache ─────────────────
+    private sealed class AssetPageCache
+    {
+        private readonly AssetRepository _repo;
+        private readonly int _pageSize;
+        private readonly Dictionary<int, List<Asset>> _cachedPages = new();
+        private readonly Queue<int> _pageQueue = new();
+        private readonly int _maxCachedPages = 15; // keep up to 15 pages in memory (1,500 assets max)
+
+        private string? _statusFilter;
+        private string _searchQuery = "";
+        private string _sortCol = "Tag";
+        private bool _sortAsc = true;
+        private int _totalCount = -1;
+
+        public AssetPageCache(AssetRepository repo, int pageSize = 100)
+        {
+            _repo = repo;
+            _pageSize = pageSize;
+        }
+
+        public void UpdateFilter(string? statusFilter, string searchQuery, string sortCol, bool sortAsc)
+        {
+            _statusFilter = statusFilter;
+            _searchQuery = searchQuery;
+            _sortCol = sortCol;
+            _sortAsc = sortAsc;
+            Invalidate();
+        }
+
+        public void Invalidate()
+        {
+            _cachedPages.Clear();
+            _pageQueue.Clear();
+            _totalCount = -1;
+        }
+
+        public int GetTotalCount()
+        {
+            if (_totalCount == -1)
+            {
+                _totalCount = _repo.GetFilteredCount(_statusFilter, _searchQuery);
+            }
+            return _totalCount;
+        }
+
+        public Asset GetAssetAt(int rowIndex)
+        {
+            int pageIndex = rowIndex / _pageSize;
+            int offset = rowIndex % _pageSize;
+
+            if (!_cachedPages.TryGetValue(pageIndex, out var page))
+            {
+                if (_cachedPages.Count >= _maxCachedPages && _pageQueue.Count > 0)
+                {
+                    int oldestPage = _pageQueue.Dequeue();
+                    _cachedPages.Remove(oldestPage);
+                }
+
+                page = _repo.GetFilteredPage(_statusFilter, _searchQuery, pageIndex * _pageSize, _pageSize, _sortCol, _sortAsc);
+                _cachedPages[pageIndex] = page;
+                _pageQueue.Enqueue(pageIndex);
+            }
+
+            if (offset >= 0 && offset < page.Count)
+            {
+                return page[offset];
+            }
+
+            return new Asset(); // fallback safe object
+        }
+
+        public void UpdateAssetInCache(int rowIndex, Asset updatedAsset)
+        {
+            int pageIndex = rowIndex / _pageSize;
+            int offset = rowIndex % _pageSize;
+
+            if (_cachedPages.TryGetValue(pageIndex, out var page))
+            {
+                if (offset >= 0 && offset < page.Count)
+                {
+                    page[offset] = updatedAsset;
+                }
+            }
+        }
+    }
 }
