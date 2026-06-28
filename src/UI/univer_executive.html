@@ -47,11 +47,11 @@
     <script src="https://cdn.jsdelivr.net/npm/@univerjs/sheets-formula@0.2.0-beta.4/lib/umd/index.js"></script>
 
     <script>
-        async function initUniver() {
-            // Retrieve analytical in-memory pivot records from the C# bridge
-            const bridge = window.chrome.webview.hostObjects.bridge;
-            const rawJson = await bridge.GetSovereignData();
-            const data = JSON.parse(rawJson);
+        let univerInitialized = false;
+
+        async function initUniver(data) {
+            if (univerInitialized) return;
+            univerInitialized = true;
 
             // Setup UniverInstance
             const univer = UniverCore.createUniver({
@@ -123,11 +123,24 @@
         }
 
         window.onload = () => {
-            // Wait for WebView2 host bridge object to settle
+            // Listen for data message from C# WebView2 side
             if (window.chrome && window.chrome.webview) {
-                initUniver();
+                window.chrome.webview.addEventListener('message', event => {
+                    try {
+                        const parsedData = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                        initUniver(parsedData);
+                    } catch (e) {
+                        initUniver([{"Location": "Error parsing bridge data", "PENDING": 0}]);
+                    }
+                });
             } else {
-                setTimeout(initUniver, 100);
+                // Mock fallback for standard browser testing
+                setTimeout(() => {
+                    initUniver([
+                        { "Location": "Riyadh Head Office", "PENDING": 25000, "VERIFIED": 45000, "DISPOSED": 1500, "TRANSFERRED": 5000 },
+                        { "Location": "Jeddah Branch", "PENDING": 12000, "VERIFIED": 33000, "DISPOSED": 900, "TRANSFERRED": 2000 }
+                    ]);
+                }, 500);
             }
         };
     </script>

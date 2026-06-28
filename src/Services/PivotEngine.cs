@@ -2,77 +2,117 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Text.Json;
-using DuckDB.NET.Data;
+using Microsoft.Data.Sqlite;
 using AssetInventory.Core;
 
 namespace AssetInventory.Services;
 
-public class PivotEngine : IDisposable
+public class PivotEngine
 {
-    private DuckDBConnection _connection;
+    private readonly string _connStr;
 
     public PivotEngine()
     {
-        _connection = new DuckDBConnection("DataSource=:memory:");
-        _connection.Open();
-        InitializeSchema();
-    }
-
-    private void InitializeSchema()
-    {
         var config = ConfigService.Load();
         var dbPath = config.DatabasePath;
-
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = $"INSTALL sqlite; LOAD sqlite; ATTACH '{dbPath}' AS sqlite_db (TYPE SQLITE);";
-        cmd.ExecuteNonQuery();
+        var password = EncryptionService.GetDatabasePassword();
+        
+        if (string.IsNullOrEmpty(password))
+        {
+            _connStr = $"Data Source={dbPath}";
+        }
+        else
+        {
+            _connStr = $"Data Source={dbPath};Password={password};";
+        }
     }
 
     /// <summary>
-    /// Computes high-performance OLAP pivot aggregations using DuckDB.
+    /// Fetches all assets and aggregates values in-memory to prevent database locking and external dependency issues.
     /// </summary>
     public string GetExecutivePivotJson()
     {
-        using var cmd = _connection.CreateCommand();
-        
-        cmd.CommandText = @"
-            PIVOT (
-                SELECT 
-                    Loc AS Location, 
-                    Status, 
-                    COALESCE(TRY_CAST(Note AS DOUBLE), 500.0) AS AssetValue 
-                FROM sqlite_db.Assets
-            )
-            ON Status 
-            USING SUM(AssetValue) 
-            GROUP BY Location
-            ORDER BY Location ASC";
+        var rawRows = new List<PivotRawRow>();
 
-        using var reader = cmd.ExecuteReader();
-        var dt = new DataTable();
-        dt.Load(reader);
-
-        var rows = new List<Dictionary<string, object>>();
-        foreach (DataRow row in dt.Rows)
+        using (var conn = new SqliteConnection(_connStr))
         {
-            var dict = new Dictionary<string, object>();
-            foreach (DataColumn col in dt.Columns)
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT Loc, Status, Note FROM Assets";
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
             {
-                var val = row[col];
-                dict[col.ColumnName] = val == DBNull.Value ? 0.0 : val;
+                string loc = reader.IsDBNull(0) ? "N/A" : reader.GetString(0);
+                string status = reader.IsDBNull(1) ? "PENDING" : reader.GetString(1);
+                string note = reader.IsDBNull(2) ? "" : reader.GetString(2);
+
+                if (string.IsNullOrEmpty(loc)) loc = "N/A";
+
+                // Parse numeric value from note (which stores the depreciated or initial value)
+                double val = 500.0;
+                if (double.TryParse(note, out double parsedVal))
+                {
+                    val = parsedVal;
+                }
+
+                rawRows.Add(new PivotRawRow
+                {
+                    Location = loc,
+                    Status = status.ToUpperInvariant(),
+                    Value = val
+                });
             }
-            rows.Add(dict);
         }
 
-        return JsonSerializer.Serialize(rows, new JsonSerializerOptions { PropertyNamingPolicy = null });
+        // Pivot the records grouped by Location
+        var pivotDict = new Dictionary<string, Dictionary<string, double>>();
+        var targetStatuses = new HashSet<string> { "PENDING", "VERIFIED", "DISPOSED", "TRANSFERRED" };
+
+        foreach (var row in rawRows)
+        {
+            if (!pivotDict.ContainsKey(row.Location))
+            {
+                pivotDict[row.Location] = new Dictionary<string, double>();
+                foreach (var status in targetStatuses)
+                {
+                    pivotDict[row.Location][status] = 0.0;
+                }
+            }
+
+            if (targetStatuses.Contains(row.Status))
+            {
+                pivotDict[row.Location][row.Status] += row.Value;
+            }
+            else
+            {
+                // Group any unexpected status under PENDING
+                pivotDict[row.Location]["PENDING"] += row.Value;
+            }
+        }
+
+        // Format for JSON serialization
+        var resultList = new List<Dictionary<string, object>>();
+        foreach (var kvp in pivotDict)
+        {
+            var dict = new Dictionary<string, object>
+            {
+                { "Location", kvp.Key }
+            };
+            foreach (var statusKvp in kvp.Value)
+            {
+                dict[statusKvp.Key] = statusKvp.Value;
+            }
+            resultList.Add(dict);
+        }
+
+        return JsonSerializer.Serialize(resultList);
     }
 
-    public void Dispose()
+    private class PivotRawRow
     {
-        if (_connection != null)
-        {
-            _connection.Dispose();
-            _connection = null;
-        }
+        public string Location { get; set; } = "N/A";
+        public string Status { get; set; } = "PENDING";
+        public double Value { get; set; }
     }
 }
