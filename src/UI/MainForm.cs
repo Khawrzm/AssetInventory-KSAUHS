@@ -1311,41 +1311,58 @@ public sealed partial class MainForm : Form
         Cursor = Cursors.WaitCursor;
         try
         {
-            double[] values = new double[count];
+            double[] costs = new double[count];
+            double[] rates = new double[count];
+            double[] ages = new double[count];
+            double[] results = new double[count];
             Asset[] assets = new Asset[count];
+
             for (int i = 0; i < count; i++)
             {
                 assets[i] = _cache.GetAssetAt(i);
+                
+                // Parse or default initial cost
                 if (!double.TryParse(assets[i].Note, out double val))
                 {
-                    val = assets[i].AssetDescription.Length * 125.50 + 500.0;
+                    val = assets[i].AssetDescription.Length * 150.0 + 500.0;
                 }
-                values[i] = val;
+                costs[i] = val;
+
+                // Default rate to 15.0%
+                rates[i] = 15.0;
+
+                // Dynamic age based on Tag or date
+                double age = 1.0;
+                if (DateTime.TryParse(assets[i].CreatedAt, out DateTime created))
+                {
+                    age = Math.Max(0.5, (DateTime.Now - created).TotalDays / 365.25);
+                }
+                else
+                {
+                    age = (assets[i].TagNumber.Length % 5) + 1.0;
+                }
+                ages[i] = age;
             }
 
+            // Run parallel calculations in C++ engine
             await Task.Run(() =>
             {
-                unsafe
-                {
-                    fixed (double* ptr = values)
-                    {
-                        CalculateAssetDepreciationInternal(ptr, values.Length);
-                    }
-                }
+                Core.EngineInterop.CalculateDepreciationParallel(costs, rates, ages, results, 100.0);
             });
 
+            // Save results back to DB
             await Task.Run(() =>
             {
                 for (int i = 0; i < count; i++)
                 {
-                    assets[i].Note = values[i].ToString("F2");
+                    assets[i].Note = results[i].ToString("F2");
                     assets[i].DataHash = Core.IntegrityGuard.CalculateRecordHash(assets[i].TagNumber, assets[i].MajorLoc);
                     _repo.Save(assets[i]);
                 }
             });
 
             RefreshAll();
-            Toast(T("✓ Depreciation calculated (15%)", "✓ تم حساب الإهلاك بنسبة 15%"), Theme.Green);
+            Toast(T("✓ Parallel depreciation computed (15% rate)", "✓ تم حساب الإهلاك الموازي بنسبة 15%"), Theme.Green);
         }
         catch (Exception ex)
         {

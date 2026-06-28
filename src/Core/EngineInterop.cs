@@ -44,6 +44,16 @@ public static partial class EngineInterop
         int size
     );
 
+    [LibraryImport("sovereign_engine.dll", EntryPoint = "calculate_depreciation_parallel")]
+    private static unsafe partial void CalculateDepreciationParallelInternal(
+        double* costs,
+        double* rates,
+        double* ages,
+        double* results,
+        double salvageValue,
+        int size
+    );
+
     /// <summary>
     /// Computes summary statistics for assets using the optimized native C++ engine, with a managed fallback.
     /// </summary>
@@ -127,6 +137,45 @@ public static partial class EngineInterop
             for (int i = 0; i < values.Length; ++i)
             {
                 values[i] *= 0.85;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Performs high-performance parallelized depreciation calculations with direct memory mapped spans.
+    /// </summary>
+    public static unsafe void CalculateDepreciationParallel(ReadOnlySpan<double> costs, ReadOnlySpan<double> rates, ReadOnlySpan<double> ages, Span<double> results, double salvageValue)
+    {
+        int size = costs.Length;
+        if (rates.Length != size || ages.Length != size || results.Length != size)
+        {
+            throw new ArgumentException("Input and output buffers must have identical lengths.");
+        }
+
+        try
+        {
+            fixed (double* pCosts = costs)
+            fixed (double* pRates = rates)
+            fixed (double* pAges = ages)
+            fixed (double* pResults = results)
+            {
+                CalculateDepreciationParallelInternal(pCosts, pRates, pAges, pResults, salvageValue, size);
+            }
+        }
+        catch (DllNotFoundException)
+        {
+            // Managed C# Fallback (Puncalc equivalent logic)
+            for (int i = 0; i < size; ++i)
+            {
+                double cost = costs[i];
+                double rate = rates[i];
+                double age = ages[i];
+                double val = cost - (cost * (rate / 100.0) * age);
+                if (val < salvageValue)
+                {
+                    val = salvageValue;
+                }
+                results[i] = val;
             }
         }
     }
