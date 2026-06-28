@@ -106,19 +106,34 @@ internal sealed class AnalyticsPanel : Panel
         g.SmoothingMode      = SmoothingMode.AntiAlias;
         g.TextRenderingHint  = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
+        bool isRtl = RightToLeft == RightToLeft.Yes;
+
         int pad   = 20;
         int W     = ClientSize.Width  - pad * 2;
         int H     = ClientSize.Height - pad * 2;
         int leftW = (int)(W * 0.42f);
         int rightW= W - leftW - 16;
 
-        // ── Left card: Donut chart ─────────────────────────────────────
-        var leftRect = new Rectangle(pad, pad, leftW, H - 54);
+        Rectangle leftRect;
+        Rectangle rightRect;
+
+        if (isRtl)
+        {
+            // Swap card positions for RTL layout
+            leftRect = new Rectangle(pad + rightW + 16, pad, leftW, H - 54);
+            rightRect = new Rectangle(pad, pad, rightW, H - 54);
+        }
+        else
+        {
+            leftRect = new Rectangle(pad, pad, leftW, H - 54);
+            rightRect = new Rectangle(pad + leftW + 16, pad, rightW, H - 54);
+        }
+
+        // ── Card: Donut chart ──────────────────────────────────────────
         DrawCard(g, leftRect);
         DrawDonut(g, leftRect);
 
-        // ── Right card: Location bars ──────────────────────────────────
-        var rightRect = new Rectangle(pad + leftW + 16, pad, rightW, H - 54);
+        // ── Card: Location bars ─────────────────────────────────────────
         DrawCard(g, rightRect);
         DrawLocationBars(g, rightRect);
 
@@ -146,12 +161,15 @@ internal sealed class AnalyticsPanel : Panel
     private void DrawDonut(Graphics g, Rectangle card)
     {
         var stats = _stats!;
+        bool isRtl = RightToLeft == RightToLeft.Yes;
+        var align = isRtl ? TextFormatFlags.Right : TextFormatFlags.Left;
 
         // Title
-        TextRenderer.DrawText(g, "Inventory Health",
+        string title = isRtl ? "صحة المخزون" : "Inventory Health";
+        TextRenderer.DrawText(g, title,
             _titleFont,
             new Rectangle(card.X + 16, card.Y + 14, card.Width - 32, 28),
-            Theme.TextPrimary, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            Theme.TextPrimary, align | TextFormatFlags.VerticalCenter);
 
         // Donut dimensions
         int donutSize = Math.Min(card.Width - 40, 200);
@@ -162,10 +180,10 @@ internal sealed class AnalyticsPanel : Panel
         // Segments
         var segments = new (string label, int count, Color color)[]
         {
-            ("Verified",    stats.Verified,    Theme.Green),
-            ("Pending",     stats.Pending,     Theme.Yellow),
-            ("Disposed",    stats.Disposed,    Theme.Red),
-            ("Transferred", stats.Transferred, Theme.Cyan),
+            (isRtl ? "محققة" : "Verified",    stats.Verified,    Theme.Green),
+            (isRtl ? "معلقة" : "Pending",     stats.Pending,     Theme.Yellow),
+            (isRtl ? "مستبعدة" : "Disposed",    stats.Disposed,    Theme.Red),
+            (isRtl ? "منقولة" : "Transferred", stats.Transferred, Theme.Cyan),
         };
 
         if (stats.Total > 0)
@@ -205,7 +223,8 @@ internal sealed class AnalyticsPanel : Panel
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
                 var smRect = new Rectangle(holeRect.X, holeRect.Y + (int)(holeSize * 0.35f), holeSize, (int)(holeSize * 0.2f));
-                TextRenderer.DrawText(g, "Verified", smFont, smRect, Theme.TextSecondary,
+                string verStr = isRtl ? "محققة" : "Verified";
+                TextRenderer.DrawText(g, verStr, smFont, smRect, Theme.TextSecondary,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             }
         }
@@ -213,7 +232,8 @@ internal sealed class AnalyticsPanel : Panel
         {
             // Empty state
             g.DrawEllipse(_emptyRingPen, donutRect);
-            TextRenderer.DrawText(g, "لا توجد بيانات",
+            string emptyStr = isRtl ? "لا توجد بيانات" : "No data available";
+            TextRenderer.DrawText(g, emptyStr,
                 _bodyFont, donutRect, Theme.TextSecondary,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
@@ -232,6 +252,7 @@ internal sealed class AnalyticsPanel : Panel
         int total,
         Rectangle area)
     {
+        bool isRtl = RightToLeft == RightToLeft.Yes;
         int itemH = 24;
         int y     = area.Y;
 
@@ -239,29 +260,50 @@ internal sealed class AnalyticsPanel : Panel
         {
             if (y + itemH > area.Bottom) break;
 
+            int dotX, labelX, labelW, countX, pctX;
+            var labelAlign = isRtl ? TextFormatFlags.Right : TextFormatFlags.Left;
+            var numAlign = isRtl ? TextFormatFlags.Left : TextFormatFlags.Right;
+
+            if (isRtl)
+            {
+                dotX = area.Right - 12;
+                labelX = area.X + area.Width / 2 - 10;
+                labelW = area.Width / 2;
+                countX = area.X + 34;
+                pctX = area.X;
+            }
+            else
+            {
+                dotX = area.X;
+                labelX = area.X + 18;
+                labelW = area.Width / 2 - 10;
+                countX = area.Right - 70;
+                pctX = area.Right - 34;
+            }
+
             // Color dot
             g.SmoothingMode = SmoothingMode.AntiAlias;
             using (var brush = new SolidBrush(color))
             {
-                g.FillEllipse(brush, area.X, y + 6, 12, 12);
+                g.FillEllipse(brush, dotX, y + 6, 12, 12);
             }
             g.SmoothingMode = SmoothingMode.None;
 
             // Label
             TextRenderer.DrawText(g, label, _smallBoldFont,
-                new Rectangle(area.X + 18, y, area.Width / 2 - 10, itemH),
-                Theme.TextPrimary, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+                new Rectangle(labelX, y, labelW, itemH),
+                Theme.TextPrimary, labelAlign | TextFormatFlags.VerticalCenter);
 
             // Count
             TextRenderer.DrawText(g, count.ToString(), _smallBoldFont,
-                new Rectangle(area.Right - 70, y, 35, itemH),
-                Theme.TextPrimary, TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
+                new Rectangle(countX, y, 35, itemH),
+                Theme.TextPrimary, numAlign | TextFormatFlags.VerticalCenter);
 
             // Percentage
             double pct = total > 0 ? count * 100.0 / total : 0;
             TextRenderer.DrawText(g, $"{pct:0.0}%", _smallBoldFont,
-                new Rectangle(area.Right - 34, y, 34, itemH),
-                Theme.TextSecondary, TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
+                new Rectangle(pctX, y, 34, itemH),
+                Theme.TextSecondary, numAlign | TextFormatFlags.VerticalCenter);
 
             y += itemH;
         }
@@ -272,14 +314,19 @@ internal sealed class AnalyticsPanel : Panel
     // ═══════════════════════════════════════════════════════════════
     private void DrawLocationBars(Graphics g, Rectangle card)
     {
-        TextRenderer.DrawText(g, "Top Locations  —  asset distribution",
+        bool isRtl = RightToLeft == RightToLeft.Yes;
+        var align = isRtl ? TextFormatFlags.Right : TextFormatFlags.Left;
+        string title = isRtl ? "أهم المواقع — توزيع الأصول" : "Top Locations  —  asset distribution";
+
+        TextRenderer.DrawText(g, title,
             _titleFont,
             new Rectangle(card.X + 16, card.Y + 14, card.Width - 32, 28),
-            Theme.TextPrimary, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            Theme.TextPrimary, align | TextFormatFlags.VerticalCenter);
 
         if (_locations is null || _locations.Count == 0)
         {
-            TextRenderer.DrawText(g, "لا توجد بيانات موقع", _bodyFont,
+            string noLoc = isRtl ? "لا توجد بيانات موقع" : "No location data available";
+            TextRenderer.DrawText(g, noLoc, _bodyFont,
                 card, Theme.TextSecondary,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             return;
@@ -293,8 +340,25 @@ internal sealed class AnalyticsPanel : Panel
         int rowH     = dataH / top.Count;
         int barH     = Math.Max(10, (int)(rowH * 0.55f));
         int labelW   = 110;
-        int barAreaX = card.X + 16 + labelW;
-        int barAreaW = card.Width - 32 - labelW - 50;
+
+        int barAreaX, barAreaW, countX, labelX;
+        var labelTextAlign = isRtl ? TextFormatFlags.Left : TextFormatFlags.Right;
+        var countTextAlign = isRtl ? TextFormatFlags.Right : TextFormatFlags.Left;
+
+        if (isRtl)
+        {
+            labelX = card.Right - 16 - labelW;
+            barAreaX = card.X + 50;
+            barAreaW = card.Width - 32 - labelW - 50;
+            countX = card.X + 16;
+        }
+        else
+        {
+            labelX = card.X + 16;
+            barAreaX = card.X + 16 + labelW;
+            barAreaW = card.Width - 32 - labelW - 50;
+            countX = barAreaX + barAreaW + 4;
+        }
 
         // Color gradient for bars
         Color[] barColors =
@@ -323,9 +387,9 @@ internal sealed class AnalyticsPanel : Panel
             // Label (truncate if too long)
             string displayLoc = loc.Length > 14 ? loc[..13] + "…" : loc;
             TextRenderer.DrawText(g, displayLoc, _smallBoldFont,
-                new Rectangle(card.X + 16, rowY, labelW - 6, rowH),
+                new Rectangle(labelX, rowY, labelW - 6, rowH),
                 Theme.TextSecondary,
-                TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                labelTextAlign | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
 
             // Background track
             g.FillRectangle(_trackBrush, barAreaX, barY, barAreaW, barH);
@@ -333,14 +397,16 @@ internal sealed class AnalyticsPanel : Panel
             // Bar fill with gradient
             if (barW > 0)
             {
+                int drawBarX = isRtl ? (barAreaX + barAreaW - barW) : barAreaX;
+
                 using var barBrush = new LinearGradientBrush(
-                    new Rectangle(barAreaX, barY, barW + 1, barH),
-                    barColor, Color.FromArgb(Math.Max(0, barColor.R - 40),
-                                             Math.Max(0, barColor.G - 40),
-                                             Math.Max(0, barColor.B - 40)),
+                    new Rectangle(drawBarX, barY, barW + 1, barH),
+                    isRtl ? Color.FromArgb(Math.Max(0, barColor.R - 40), Math.Max(0, barColor.G - 40), Math.Max(0, barColor.B - 40)) : barColor,
+                    isRtl ? barColor : Color.FromArgb(Math.Max(0, barColor.R - 40), Math.Max(0, barColor.G - 40), Math.Max(0, barColor.B - 40)),
                     LinearGradientMode.Horizontal);
+
                 g.SmoothingMode = SmoothingMode.AntiAlias;
-                using var path = Rounded(new Rectangle(barAreaX, barY, barW, barH), 4);
+                using var path = Rounded(new Rectangle(drawBarX, barY, barW, barH), 4);
                 g.FillPath(barBrush, path);
                 g.SmoothingMode = SmoothingMode.None;
             }
@@ -348,8 +414,8 @@ internal sealed class AnalyticsPanel : Panel
             // Count value
             TextRenderer.DrawText(g, count.ToString(),
                 _smallBoldFont,
-                new Rectangle(barAreaX + barAreaW + 4, rowY, 40, rowH),
-                Theme.TextPrimary, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+                new Rectangle(countX, rowY, 40, rowH),
+                Theme.TextPrimary, countTextAlign | TextFormatFlags.VerticalCenter);
 
             // Row separator
             if (i < top.Count - 1)
@@ -363,6 +429,7 @@ internal sealed class AnalyticsPanel : Panel
     private void DrawSummary(Graphics g, Rectangle area)
     {
         if (_stats is null) return;
+        bool isRtl = RightToLeft == RightToLeft.Yes;
 
         int locCount  = _locations?.Count ?? 0;
         double avgLoc = locCount > 0 ? Math.Round(_totalAssets * 1.0 / locCount, 1) : 0;
@@ -370,12 +437,12 @@ internal sealed class AnalyticsPanel : Panel
 
         var stats = new (string label, string value)[]
         {
-            ("Total Assets",     _stats.Total.ToString()),
-            ("Verified",         $"{_stats.Verified}  ({_stats.VerifiedPct:0.0}%)"),
-            ("Pending",          $"{_stats.Pending}"),
-            ("Locations",        locCount.ToString()),
-            ("Avg / Location",   avgLoc.ToString("0.0")),
-            ("Top Location",     topLoc.Length > 16 ? topLoc[..15] + "…" : topLoc),
+            (isRtl ? "إجمالي الأصول" : "Total Assets",     _stats.Total.ToString()),
+            (isRtl ? "الأصول المحققة" : "Verified",         $"{_stats.Verified}  ({_stats.VerifiedPct:0.0}%)"),
+            (isRtl ? "الأصول المعلقة" : "Pending",          $"{_stats.Pending}"),
+            (isRtl ? "المواقع" : "Locations",        locCount.ToString()),
+            (isRtl ? "معدل الموقع" : "Avg / Location",   avgLoc.ToString("0.0")),
+            (isRtl ? "الموقع الأبرز" : "Top Location",     topLoc.Length > 16 ? topLoc[..15] + "…" : topLoc),
         };
 
         using var path = Rounded(area, 8);
@@ -384,7 +451,8 @@ internal sealed class AnalyticsPanel : Panel
         int itemW = area.Width / stats.Length;
         for (int i = 0; i < stats.Length; i++)
         {
-            var (label, value) = stats[i];
+            int index = isRtl ? (stats.Length - 1 - i) : i;
+            var (label, value) = stats[index];
             int x = area.X + i * itemW;
 
             TextRenderer.DrawText(g, value,
@@ -407,7 +475,9 @@ internal sealed class AnalyticsPanel : Panel
     // ═══════════════════════════════════════════════════════════════
     private void DrawEmpty(Graphics g)
     {
-        TextRenderer.DrawText(g, "لا توجد بيانات بعد — أضف أصولاً أولاً", _titleFont,
+        bool isRtl = RightToLeft == RightToLeft.Yes;
+        string emptyStr = isRtl ? "لا توجد بيانات بعد — أضف أصولاً أولاً" : "No data available yet — please add assets first";
+        TextRenderer.DrawText(g, emptyStr, _titleFont,
             ClientRectangle, Theme.TextSecondary,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
     }
