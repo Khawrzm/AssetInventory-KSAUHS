@@ -132,6 +132,13 @@ public class AssetRepository
         return dict;
     }
 
+    public Asset? GetByTag(string tag)
+    {
+        using var conn = new SqliteConnection(ConnStr);
+        conn.Open();
+        return GetByTag(tag, conn, null);
+    }
+
     private Asset? GetByTag(string tag, SqliteConnection conn, SqliteTransaction trans)
     {
         using var cmd = conn.CreateCommand();
@@ -143,7 +150,7 @@ public class AssetRepository
         return null;
     }
 
-    private void WriteAuditLog(SqliteConnection conn, SqliteTransaction trans, string assetTag, string fieldChanged, string? oldValue, string? newValue)
+    private void WriteAuditLog(SqliteConnection conn, SqliteTransaction trans, string assetTag, string fieldChanged, string? oldValue, string? newValue, string? changedBy = null)
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = trans;
@@ -154,12 +161,12 @@ public class AssetRepository
         cmd.Parameters.AddWithValue("@field", fieldChanged);
         cmd.Parameters.AddWithValue("@old", (object?)oldValue ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@new", (object?)newValue ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@user", Environment.UserName);
+        cmd.Parameters.AddWithValue("@user", changedBy ?? Environment.UserName);
         cmd.Parameters.AddWithValue("@device", Environment.MachineName);
         cmd.ExecuteNonQuery();
     }
 
-    public void Save(Asset asset)
+    public void Save(Asset asset, string? changedBy = null)
     {
         using var conn  = new SqliteConnection(ConnStr);
         conn.Open();
@@ -191,20 +198,20 @@ public class AssetRepository
 
         if (old == null)
         {
-            WriteAuditLog(conn, trans, asset.TagNumber, "Create", null, "Asset Created");
+            WriteAuditLog(conn, trans, asset.TagNumber, "Create", null, "Asset Created", changedBy);
         }
         else
         {
             if (old.AssetDescription != asset.AssetDescription)
-                WriteAuditLog(conn, trans, asset.TagNumber, "AssetDescription", old.AssetDescription, asset.AssetDescription);
+                WriteAuditLog(conn, trans, asset.TagNumber, "AssetDescription", old.AssetDescription, asset.AssetDescription, changedBy);
             if (old.MajorLoc != asset.MajorLoc)
-                WriteAuditLog(conn, trans, asset.TagNumber, "MajorLoc", old.MajorLoc, asset.MajorLoc);
+                WriteAuditLog(conn, trans, asset.TagNumber, "MajorLoc", old.MajorLoc, asset.MajorLoc, changedBy);
             if (old.MinorLoc != asset.MinorLoc)
-                WriteAuditLog(conn, trans, asset.TagNumber, "MinorLoc", old.MinorLoc, asset.MinorLoc);
+                WriteAuditLog(conn, trans, asset.TagNumber, "MinorLoc", old.MinorLoc, asset.MinorLoc, changedBy);
             if (old.Status != asset.Status)
-                WriteAuditLog(conn, trans, asset.TagNumber, "Status", old.Status, asset.Status);
+                WriteAuditLog(conn, trans, asset.TagNumber, "Status", old.Status, asset.Status, changedBy);
             if (old.Note != asset.Note)
-                WriteAuditLog(conn, trans, asset.TagNumber, "Note", old.Note, asset.Note);
+                WriteAuditLog(conn, trans, asset.TagNumber, "Note", old.Note, asset.Note, changedBy);
         }
 
         trans.Commit();
@@ -322,6 +329,13 @@ public class AssetRepository
         return dict;
     }
 
+    public async Task<Asset?> GetByTagAsync(string tag)
+    {
+        using var conn = new SqliteConnection(ConnStr);
+        await conn.OpenAsync();
+        return await GetByTagAsync(tag, conn, null);
+    }
+
     private async Task<Asset?> GetByTagAsync(string tag, SqliteConnection conn, SqliteTransaction trans)
     {
         using var cmd = conn.CreateCommand();
@@ -333,7 +347,7 @@ public class AssetRepository
         return null;
     }
 
-    private async Task WriteAuditLogAsync(SqliteConnection conn, SqliteTransaction trans, string assetTag, string fieldChanged, string? oldValue, string? newValue)
+    private async Task WriteAuditLogAsync(SqliteConnection conn, SqliteTransaction trans, string assetTag, string fieldChanged, string? oldValue, string? newValue, string? changedBy = null)
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = trans;
@@ -344,12 +358,12 @@ public class AssetRepository
         cmd.Parameters.AddWithValue("@field", fieldChanged);
         cmd.Parameters.AddWithValue("@old", (object?)oldValue ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@new", (object?)newValue ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@user", Environment.UserName);
+        cmd.Parameters.AddWithValue("@user", changedBy ?? Environment.UserName);
         cmd.Parameters.AddWithValue("@device", Environment.MachineName);
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task SaveAsync(Asset asset)
+    public async Task SaveAsync(Asset asset, string? changedBy = null)
     {
         using var conn  = new SqliteConnection(ConnStr);
         await conn.OpenAsync();
@@ -381,20 +395,20 @@ public class AssetRepository
 
         if (old == null)
         {
-            await WriteAuditLogAsync(conn, trans, asset.TagNumber, "Create", null, "Asset Created");
+            await WriteAuditLogAsync(conn, trans, asset.TagNumber, "Create", null, "Asset Created", changedBy);
         }
         else
         {
             if (old.AssetDescription != asset.AssetDescription)
-                await WriteAuditLogAsync(conn, trans, asset.TagNumber, "AssetDescription", old.AssetDescription, asset.AssetDescription);
+                await WriteAuditLogAsync(conn, trans, asset.TagNumber, "AssetDescription", old.AssetDescription, asset.AssetDescription, changedBy);
             if (old.MajorLoc != asset.MajorLoc)
-                await WriteAuditLogAsync(conn, trans, asset.TagNumber, "MajorLoc", old.MajorLoc, asset.MajorLoc);
+                await WriteAuditLogAsync(conn, trans, asset.TagNumber, "MajorLoc", old.MajorLoc, asset.MajorLoc, changedBy);
             if (old.MinorLoc != asset.MinorLoc)
-                await WriteAuditLogAsync(conn, trans, asset.TagNumber, "MinorLoc", old.MinorLoc, asset.MinorLoc);
+                await WriteAuditLogAsync(conn, trans, asset.TagNumber, "MinorLoc", old.MinorLoc, asset.MinorLoc, changedBy);
             if (old.Status != asset.Status)
-                await WriteAuditLogAsync(conn, trans, asset.TagNumber, "Status", old.Status, asset.Status);
+                await WriteAuditLogAsync(conn, trans, asset.TagNumber, "Status", old.Status, asset.Status, changedBy);
             if (old.Note != asset.Note)
-                await WriteAuditLogAsync(conn, trans, asset.TagNumber, "Note", old.Note, asset.Note);
+                await WriteAuditLogAsync(conn, trans, asset.TagNumber, "Note", old.Note, asset.Note, changedBy);
         }
 
         await trans.CommitAsync();

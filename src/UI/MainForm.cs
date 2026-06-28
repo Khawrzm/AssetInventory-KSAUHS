@@ -120,6 +120,27 @@ public sealed class MainForm : Form
         WireKeys();
         ResumeLayout(false);
 
+        // Start background air-gapped Mobile Sync listener
+        try
+        {
+            SyncListener.Instance.Start(8080);
+            SyncListener.Instance.ScanReceived += (asset) =>
+            {
+                if (InvokeRequired)
+                {
+                    Invoke(new Action(() => OnScanReceived(asset)));
+                }
+                else
+                {
+                    OnScanReceived(asset);
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Sync server failed: {ex.Message}");
+        }
+
         Shown += (_, _) => RefreshAll();
     }
 
@@ -144,6 +165,12 @@ public sealed class MainForm : Form
     {
         if (disposing)
         {
+            try
+            {
+                SyncListener.Instance.Stop();
+            }
+            catch { }
+
             _tagFont?.Dispose();
             _emojiFontLogo?.Dispose();
             _subtitleFontLogo?.Dispose();
@@ -238,16 +265,69 @@ public sealed class MainForm : Form
         ActionBtn(navFlow, T("  ↓  Export CSV", "  ↓  تصدير CSV"),      OnExportCsv);
 
         // Footer
-        var footer = new Panel { Dock = DockStyle.Bottom, Height = 40, BackColor = Theme.SidebarBg };
+        var footer = new Panel { Dock = DockStyle.Bottom, Height = 90, BackColor = Theme.SidebarBg };
         footer.Paint += (s, e) =>
         {
             var p = (Panel)s!;
             e.Graphics.FillRectangle(_sidebarBorderBrush, 0, 0, p.Width, 1);
         };
+
+        // Sync Status Panel inside footer
+        var syncPanel = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Color.Transparent };
+        syncPanel.Paint += (s, e) =>
+        {
+            var p = (Panel)s!;
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            bool isRunning = SyncListener.Instance.IsRunning;
+            Color dotColor = isRunning ? Theme.Green : Theme.Red;
+            
+            // Draw status dot
+            int dotX = _isArabic ? p.Width - 20 : 12;
+            using (var dotBrush = new SolidBrush(dotColor))
+            {
+                g.FillEllipse(dotBrush, dotX, 10, 8, 8);
+            }
+
+            // Draw status text
+            int textX = _isArabic ? 10 : 26;
+            int textW = p.Width - 36;
+            string statusStr = isRunning 
+                ? T("Sync Server: ON", "خادم المزامنة: نشط") 
+                : T("Sync Server: OFF", "خادم المزامنة: متوقف");
+
+            TextRenderer.DrawText(g, statusStr, _fSidebarSm,
+                new Rectangle(textX, 6, textW, 16),
+                Color.White,
+                _isArabic ? TextFormatFlags.Right : TextFormatFlags.Left);
+
+            // Draw Server IP prefix
+            if (isRunning && SyncListener.Instance.BoundAddresses.Count > 0)
+            {
+                // Find first non-loopback address if available, else first address
+                string addr = SyncListener.Instance.BoundAddresses.Find(a => !a.Contains("127.0.0.1") && !a.Contains("localhost")) 
+                              ?? SyncListener.Instance.BoundAddresses[0];
+                TextRenderer.DrawText(g, addr, _fSidebarSm,
+                    new Rectangle(textX, 24, textW, 20),
+                    Color.FromArgb(148, 163, 184),
+                    _isArabic ? TextFormatFlags.Right : TextFormatFlags.Left);
+            }
+            else
+            {
+                string inactiveStr = T("No local network", "لا يوجد اتصال شبكي");
+                TextRenderer.DrawText(g, inactiveStr, _fSidebarSm,
+                    new Rectangle(textX, 24, textW, 20),
+                    Color.FromArgb(100, 116, 139),
+                    _isArabic ? TextFormatFlags.Right : TextFormatFlags.Left);
+            }
+        };
+
         var btnLang = new Button
         {
             Text = _isArabic ? "🌐 Switch to English" : "🌐 التحويل للعربية",
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Bottom,
+            Height = 36,
             FlatStyle = FlatStyle.Flat,
             ForeColor = Color.FromArgb(148, 163, 184),
             Font = _fSidebarSm,
@@ -256,7 +336,8 @@ public sealed class MainForm : Form
         btnLang.FlatAppearance.BorderSize = 0;
         btnLang.FlatAppearance.MouseOverBackColor = Theme.SidebarHover;
         btnLang.Click += (s, e) => ToggleLanguage();
-        footer.Controls.Add(btnLang);
+
+        footer.Controls.AddRange(new Control[] { btnLang, syncPanel });
 
         var navScroll = new Panel { Dock = DockStyle.Fill, BackColor = Theme.SidebarBg, AutoScroll = true };
         navScroll.Controls.Add(navFlow);
@@ -1070,6 +1151,12 @@ public sealed class MainForm : Form
 
         ResumeLayout(true);
         RefreshAll();
+    }
+
+    private void OnScanReceived(Asset asset)
+    {
+        RefreshAll();
+        Toast(T($"✓ Synced Tag: {asset.TagNumber}", $"✓ تم مزامنة الأصل: {asset.TagNumber}"), Theme.Green);
     }
 
     // ═══════════════════════════════════════════════════════════════════
