@@ -266,7 +266,10 @@ public sealed partial class MainForm : Form
         ActionBtn(navFlow, T("  ↑  Import CSV", "  ↑  استيراد CSV"),      OnImport);
         ActionBtn(navFlow, T("  ↓  Export Excel", "  ↓  تصدير Excel"),    OnExport);
         ActionBtn(navFlow, T("  ↓  Export CSV", "  ↓  تصدير CSV"),      OnExportCsv);
-        ActionBtn(navFlow, T("  📈  Executive & Financials", "  📈  الإدارة والمالية"), OnOpenExecutive);
+
+        // Executive & BI
+        Section(navFlow, T("EXECUTIVE & BI", "الإدارة والتحليلات"));
+        ActionBtn(navFlow, T("  📈  Financial Dashboard", "  📈  لوحة البيانات المالية"), OnOpenExecutive);
 
         // Footer
         var footer = new Panel { Dock = DockStyle.Bottom, Height = 90, BackColor = Theme.SidebarBg };
@@ -1374,7 +1377,7 @@ public sealed partial class MainForm : Form
     private void OnOpenExecutive()
     {
         var execDash = new ExecutiveDashboard();
-        execDash.Show(this);
+        execDash.Show();
     }
 
     private async void OnImport()
