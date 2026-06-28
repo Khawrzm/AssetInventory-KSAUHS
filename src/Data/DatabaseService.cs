@@ -5,7 +5,16 @@ namespace AssetInventory.Data
 {
     public class DatabaseService
     {
-        private string GetConnectionString() => $"Data Source={ConfigService.Load().DatabasePath}";
+        private string GetConnectionString()
+        {
+            var dbPath = ConfigService.Load().DatabasePath;
+            var password = EncryptionService.GetDatabasePassword();
+            if (string.IsNullOrEmpty(password))
+            {
+                return $"Data Source={dbPath}";
+            }
+            return $"Data Source={dbPath};Password={password};";
+        }
 
         // إصلاح #5: تمرير الـ transaction للـ action حتى تستطيع كل command أن تنتمي للـ transaction
         // سابقاً: commands داخل action لا تعرف عن الـ transaction فكانت تُنفَّذ خارجها

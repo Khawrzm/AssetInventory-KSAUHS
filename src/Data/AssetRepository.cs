@@ -8,7 +8,19 @@ namespace AssetInventory.Data;
 
 public class AssetRepository
 {
-    private string ConnStr => $"Data Source={ConfigService.Load().DatabasePath}";
+    private string ConnStr
+    {
+        get
+        {
+            var dbPath = ConfigService.Load().DatabasePath;
+            var password = EncryptionService.GetDatabasePassword();
+            if (string.IsNullOrEmpty(password))
+            {
+                return $"Data Source={dbPath}";
+            }
+            return $"Data Source={dbPath};Password={password};";
+        }
+    }
 
     public AssetRepository()
     {
