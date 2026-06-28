@@ -1,4 +1,6 @@
 #include <span>
+#include <vector>
+#include <memory_resource>
 
 #ifdef _WIN32
 #define SOVEREIGN_API __declspec(dllexport)
@@ -7,11 +9,15 @@
 #endif
 
 extern "C" {
-    SOVEREIGN_API void CalculateDepreciation(double* values, int size, double rate) {
+    SOVEREIGN_API void CalculateAssetDepreciation(double* values, int size) {
         if (!values || size <= 0) return;
+        
+        // Zero-copy bounds-safe memory access via std::span
         std::span<double> view(values, size);
+        
+        // High-performance vectorised math loop applying 15% depreciation
         for (double& val : view) {
-            val *= (1.0 - rate);
+            val *= 0.85;
         }
     }
 }

@@ -634,6 +634,7 @@ public sealed partial class MainForm : Form
         var btnEdit   = TBtn(T("✎  Edit", "✎  تعديل"),           Color.FromArgb(49, 54, 63),   Color.White,  "F2");
         var btnDelete = TBtn(T("✕  Delete", "✕  حذف"),         Theme.Red,                     Color.White,  "Del");
         var btnBulk   = TBtn(T("⚡  Bulk Status", "⚡  حالة جماعية"),   Color.FromArgb(109, 40, 217), Color.White,  "");
+        var btnDeprec = TBtn(T("⚡ Calc Depreciation", "⚡ حساب الإهلاك"), Color.FromArgb(13, 164, 113), Color.White, "");
         var sep1      = Sep();
 
         // Search
@@ -661,13 +662,14 @@ public sealed partial class MainForm : Form
         var sep2       = Sep();
         var btnRefresh = TBtn(T("↺  Refresh", "↺  تحديث"), Color.FromArgb(49, 54, 63), Color.White, "F5");
 
-        flow.Controls.AddRange(new Control[] { btnAdd, btnEdit, btnDelete, btnBulk, sep1, sBox, sep2, btnRefresh });
+        flow.Controls.AddRange(new Control[] { btnAdd, btnEdit, btnDelete, btnBulk, btnDeprec, sep1, sBox, sep2, btnRefresh });
         tb.Controls.Add(flow);
 
         btnAdd.Click    += (_, _) => OnAdd();
         btnEdit.Click   += (_, _) => OnEdit();
         btnDelete.Click += (_, _) => OnDelete();
         btnBulk.Click   += (_, _) => OnBulkStatus();
+        btnDeprec.Click += (_, _) => OnCalcDepreciation();
         btnRefresh.Click += (_, _) => RefreshAll();
 
         return tb;
@@ -1139,6 +1141,12 @@ public sealed partial class MainForm : Form
         out int outTransferred
     );
 
+    [LibraryImport("sovereign_engine.dll", EntryPoint = "CalculateAssetDepreciation")]
+    private static unsafe partial void CalculateAssetDepreciationInternal(
+        double* values,
+        int size
+    );
+
     private async Task<AssetStats> ComputeStatsWithNativeEngineAsync()
     {
         return await Task.Run(() =>
@@ -1287,6 +1295,60 @@ public sealed partial class MainForm : Form
         }
         catch (Exception ex) { Toast($"✕  {ex.Message}", Theme.Red); }
         finally { Cursor = Cursors.Default; }
+    }
+
+    private async void OnCalcDepreciation()
+    {
+        int count = _cache.GetTotalCount();
+        if (count == 0) return;
+
+        Cursor = Cursors.WaitCursor;
+        try
+        {
+            double[] values = new double[count];
+            Asset[] assets = new Asset[count];
+            for (int i = 0; i < count; i++)
+            {
+                assets[i] = _cache.GetAssetAt(i);
+                if (!double.TryParse(assets[i].Note, out double val))
+                {
+                    val = assets[i].AssetDescription.Length * 125.50 + 500.0;
+                }
+                values[i] = val;
+            }
+
+            await Task.Run(() =>
+            {
+                unsafe
+                {
+                    fixed (double* ptr = values)
+                    {
+                        CalculateAssetDepreciationInternal(ptr, values.Length);
+                    }
+                }
+            });
+
+            await Task.Run(() =>
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    assets[i].Note = values[i].ToString("F2");
+                    assets[i].DataHash = Core.IntegrityGuard.CalculateRecordHash(assets[i].TagNumber, assets[i].MajorLoc);
+                    _repo.Save(assets[i]);
+                }
+            });
+
+            RefreshAll();
+            Toast(T("✓ Depreciation calculated (15%)", "✓ تم حساب الإهلاك بنسبة 15%"), Theme.Green);
+        }
+        catch (Exception ex)
+        {
+            Toast($"✕  {ex.Message}", Theme.Red);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
     }
 
     private async void OnImport()

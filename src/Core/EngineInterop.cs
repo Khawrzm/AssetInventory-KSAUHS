@@ -38,11 +38,10 @@ public static partial class EngineInterop
         double* resultMatrix
     );
 
-    [LibraryImport("sovereign_engine.dll", EntryPoint = "CalculateDepreciation")]
-    private static unsafe partial void CalculateDepreciationInternal(
+    [LibraryImport("sovereign_engine.dll", EntryPoint = "CalculateAssetDepreciation")]
+    private static unsafe partial void CalculateAssetDepreciationInternal(
         double* values,
-        int size,
-        double rate
+        int size
     );
 
     /// <summary>
@@ -59,7 +58,6 @@ public static partial class EngineInterop
         }
         catch (DllNotFoundException)
         {
-            // Managed C# Fallback
             total = statuses.Length;
             verified = 0;
             pending = 0;
@@ -99,7 +97,6 @@ public static partial class EngineInterop
         }
         catch (DllNotFoundException)
         {
-            // Managed C# Fallback
             int idx = 0;
             for (int r = 0; r < initialValues.Length; ++r)
             {
@@ -116,21 +113,20 @@ public static partial class EngineInterop
     /// <summary>
     /// Computes asset depreciation in-place using raw pointer spans, with a managed fallback.
     /// </summary>
-    public static unsafe void CalculateDepreciation(Span<double> values, double rate)
+    public static unsafe void CalculateAssetDepreciation(Span<double> values)
     {
         try
         {
             fixed (double* ptr = values)
             {
-                CalculateDepreciationInternal(ptr, values.Length, rate);
+                CalculateAssetDepreciationInternal(ptr, values.Length);
             }
         }
         catch (DllNotFoundException)
         {
-            // Managed C# Fallback
             for (int i = 0; i < values.Length; ++i)
             {
-                values[i] *= (1.0 - rate);
+                values[i] *= 0.85;
             }
         }
     }
