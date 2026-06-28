@@ -32,10 +32,12 @@ jobs:
         run: |
           dotnet publish AssetInventoryNode.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:PublishReadyToRun=true /p:IncludeNativeLibrariesForSelfExtract=true -o publish
 
-      - name: Copy C++ DLL to Publish Directory
+      - name: Copy C++ DLL and UI Assets to Publish Directory
         shell: cmd
         run: |
           copy sovereign_engine.dll publish\
+          mkdir publish\UI
+          copy src\UI\univer_executive.html publish\UI\
 
       - name: Compress Publish Directory
         shell: powershell
