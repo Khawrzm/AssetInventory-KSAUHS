@@ -1331,16 +1331,8 @@ public sealed partial class MainForm : Form
                 // Default rate to 15.0%
                 rates[i] = 15.0;
 
-                // Dynamic age based on Tag or date
-                double age = 1.0;
-                if (DateTime.TryParse(assets[i].CreatedAt, out DateTime created))
-                {
-                    age = Math.Max(0.5, (DateTime.Now - created).TotalDays / 365.25);
-                }
-                else
-                {
-                    age = (assets[i].TagNumber.Length % 5) + 1.0;
-                }
+                // Dynamic age based on Tag number length
+                double age = (assets[i].TagNumber.Length % 5) + 1.0;
                 ages[i] = age;
             }
 
