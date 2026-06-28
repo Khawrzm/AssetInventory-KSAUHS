@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📈 Executive Financial Analytics</title>
+    <!-- UniverJS Core and Plugins Styles -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@univerjs/design@0.2.0-beta.4/lib/index.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@univerjs/ui@0.2.0-beta.4/lib/index.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@univerjs/docs-ui@0.2.0-beta.4/lib/index.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@univerjs/sheets-ui@0.2.0-beta.4/lib/index.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@univerjs/sheets-formula@0.2.0-beta.4/lib/index.css">
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #1B1C1F; /* Theme.ContentBg */
+            color: #E3E5EA;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #univer-container {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="univer-container"></div>
+
+    <!-- Import UniverJS Libraries from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/rxjs@7/dist/bundles/rxjs.umd.min.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@univerjs/core@0.2.0-beta.4/lib/umd/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@univerjs/design@0.2.0-beta.4/lib/umd/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@univerjs/engine-render@0.2.0-beta.4/lib/umd/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@univerjs/engine-formula@0.2.0-beta.4/lib/umd/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@univerjs/ui@0.2.0-beta.4/lib/umd/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@univerjs/docs@0.2.0-beta.4/lib/umd/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@univerjs/docs-ui@0.2.0-beta.4/lib/umd/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@univerjs/sheets@0.2.0-beta.4/lib/umd/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@univerjs/sheets-ui@0.2.0-beta.4/lib/umd/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@univerjs/sheets-formula@0.2.0-beta.4/lib/umd/index.js"></script>
+
+    <script>
+        async function initUniver() {
+            // Retrieve analytical in-memory pivot records from the C# bridge
+            const bridge = window.chrome.webview.hostObjects.bridge;
+            const rawJson = await bridge.GetSovereignData();
+            const data = JSON.parse(rawJson);
+
+            // Setup UniverInstance
+            const univer = UniverCore.createUniver({
+                theme: 'dark',
+                locale: 'en-US'
+            });
+
+            // Register core plugins
+            univer.registerPlugin(UniverUI.UniverUIPlugin, {
+                container: 'univer-container',
+                header: true,
+                footer: true,
+                sidebar: true
+            });
+            univer.registerPlugin(UniverDocs.UniverDocsPlugin);
+            univer.registerPlugin(UniverDocsUi.UniverDocsUIPlugin);
+            univer.registerPlugin(UniverSheets.UniverSheetsPlugin);
+            univer.registerPlugin(UniverSheetsUi.UniverSheetsUIPlugin);
+            univer.registerPlugin(UniverSheetsFormula.UniverSheetsFormulaPlugin);
+
+            // Format data into cellData matrix format
+            const cellData = {
+                0: {
+                    0: { v: "Location / Category", s: { bl: 1, s: 1, bd: { b: { s: 1, c: "#31363F" } } } }
+                }
+            };
+
+            // Identify all unique status columns dynamically
+            const statuses = new Set();
+            data.forEach(item => {
+                Object.keys(item).forEach(key => {
+                    if (key !== "Location") statuses.add(key);
+                });
+            });
+            const statusList = Array.from(statuses);
+
+            // Write status headers (Row 0)
+            statusList.forEach((status, idx) => {
+                cellData[0] = cellData[0] || {};
+                cellData[0][idx + 1] = { v: status, s: { bl: 1, s: 1, bd: { b: { s: 1, c: "#31363F" } } } };
+            });
+
+            // Write location pivot rows
+            data.forEach((item, rIdx) => {
+                const row = rIdx + 1;
+                cellData[row] = {};
+                cellData[row][0] = { v: item.Location, s: { bl: 1 } };
+                
+                statusList.forEach((status, cIdx) => {
+                    const val = item[status] || 0.0;
+                    cellData[row][cIdx + 1] = { v: val, t: 2 }; // Number type
+                });
+            });
+
+            // Setup spreadsheet instance
+            univer.createUnit(UniverCore.UniverInstanceType.UNIVER_SHEET, {
+                id: 'executive-financial-sheet',
+                name: 'Financial Pivot Model',
+                sheets: {
+                    'sheet1': {
+                        id: 'sheet1',
+                        name: 'OLAP Pivot',
+                        rowCount: 100,
+                        columnCount: 20,
+                        cellData: cellData
+                    }
+                }
+            });
+        }
+
+        window.onload = () => {
+            // Wait for WebView2 host bridge object to settle
+            if (window.chrome && window.chrome.webview) {
+                initUniver();
+            } else {
+                setTimeout(initUniver, 100);
+            }
+        };
+    </script>
+</body>
+</html>
